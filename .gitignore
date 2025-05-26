@@ -1,0 +1,38 @@
+# Виртуальные окружения
+.venv/
+venv/
+ENV/
+env/
+
+# Папка с набросками фич
+testing_features/
+
+app/tmp/
+
+.idea/
+
+
+# Файл с секретами
+.env
+
+# Кэш Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+
+# Логи и временные файлы
+*.log
+*.log.*
+*.sqlite3
+*.pid
+*.py~
+.DS_Store
+
+# Сборочные артефакты
+build/
+dist/
+*.egg-info/
+*.tar.gz
+*.zip
