@@ -13,7 +13,7 @@ services:
       - kafka-network
 
   processing:
-    build: F:\PythonProjects\Atelectasis\AtelectasisProcessing
+    build: ./Service/microservices/ai_processor
     container_name: processing
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
@@ -25,7 +25,7 @@ services:
       - kafka-network
 
   storage_reporting:
-    build: F:\PythonProjects\Atelectasis\AtelectasisStorageReporting
+    build: ./Service/microservices/storage_service
     container_name: storage_reporting
     environment:
       KAFKA_BOOTSTRAP: kafka:9092

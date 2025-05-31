@@ -2,9 +2,16 @@ import os
 import uvicorn
 from fastapi import FastAPI, UploadFile
 from aiokafka import AIOKafkaProducer
-import asyncio
+from pathlib import Path
+from dotenv import load_dotenv
 
 app = FastAPI()
+
+# .env
+current_dir = Path(__file__).resolve().parent
+parent_dir = current_dir.parent.parent.parent
+env_path = parent_dir / '.env'
+load_dotenv(dotenv_path=env_path)
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC_RAW = os.getenv("TOPIC_RAW", "raw-images")
 
