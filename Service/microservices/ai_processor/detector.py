@@ -5,18 +5,17 @@ import numpy as np
 from PIL import Image
 import pydicom
 import cv2
-import json
 from torchvision import transforms
-from B_dicom_handler import DicomHandler
+from dicom_handler import DicomHandler
 
-# Импортируем вашу модель
-from Neural_nets_training.B_training_teacher_classifier import DeiTClassifierWSOL
+# Импортируем  модель
+from training_teacher_classifier import DeiTClassifierWSOL
 
 
 class AtelectasisDetector:
-    def __init__(self, checkpoint_path, device=None):
+    def __init__(self, checkpoint_path=None, device=None):
         self.device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.checkpoint_path = checkpoint_path
+        self.checkpoint_path = checkpoint_path or os.getenv('MODEL_PATH', './model/best_deit_scm_model.pth')
         self.dicom_handler = DicomHandler()
 
         # Трансформации изображения
@@ -77,28 +76,32 @@ class AtelectasisDetector:
         # Определяем статус согласно требованиям
         if normal_prob >= 0.9:
             status = "normal"
-            atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
-            conclusion = f"Признаков ателектаза не обнаружено. Вероятность: {atelectasis_str}"
             other_pathologies = []
+            confidence_levels = []
         elif atelectasis_prob >= 0.7:
             status = "atelectasis_only"
-            atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
-            conclusion = f"Обнаружены признаки ателектаза (вероятность: {atelectasis_str}). Требуется подтверждение врача."
             other_pathologies = []
+            confidence_levels = []
         elif other_pathologies_prob >= 0.3:
             status = "other_pathologies"
-            atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
-            # Примеры других патологий (в реальной системе нужна более детальная классификация)
+            # TODO: Переделать на класс "Иные патологии". Выводить предикт модели для этого класса, а не генерировать случайно
             possible_pathologies = ["pleural_effusion", "pneumothorax", "consolidation"]
-            # Генерируем случайные вероятности для демонстрации
             confidence_levels = [f"{np.random.uniform(0.3, 0.8) * 100:.0f}%" for _ in possible_pathologies[:2]]
             other_pathologies = possible_pathologies[:2]
-            conclusion = f"Обнаружены другие патологии. Вероятность ателектаза: {atelectasis_str}. Требуется подтверждение врача."
         else:
             status = "normal"
-            atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
-            conclusion = f"Признаков ателектаза не обнаружено. Вероятность: {atelectasis_str}"
             other_pathologies = []
+            confidence_levels = []
+
+        atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
+
+        # Генерация заключения
+        if status == "normal":
+            conclusion = f"Признаков ателектаза не обнаружено. Вероятность: {atelectasis_str}"
+        elif status == "atelectasis_only":
+            conclusion = f"Обнаружены признаки ателектаза (вероятность: {atelectasis_str}). Требуется подтверждение врача."
+        else:
+            conclusion = f"Обнаружены другие патологии. Вероятность ателектаза: {atelectasis_str}. Требуется подтверждение врача."
 
         return {
             "status": status,
@@ -106,7 +109,7 @@ class AtelectasisDetector:
             "atelectasis_probability_str": atelectasis_str,
             "conclusion": conclusion,
             "other_pathologies": other_pathologies,
-            "confidence_levels": confidence_levels if status == "other_pathologies" else []
+            "confidence_levels": confidence_levels
         }
 
     def process_dicom(self, dicom_path):
@@ -177,47 +180,3 @@ class AtelectasisDetector:
         }
 
         return result
-
-
-def process_dicom_with_ai(dicom_path, checkpoint_path, save_json=True, output_dir=None):
-    """
-    Функция для обратной совместимости
-    """
-    detector = AtelectasisDetector(checkpoint_path)
-    result = detector.process_dicom(dicom_path)
-
-    if save_json and output_dir:
-        # Сохраняем результат в JSON
-        dicom_filename = os.path.splitext(os.path.basename(dicom_path))[0]
-        output_json_path = os.path.join(output_dir, dicom_filename + "_report.json")
-
-        with open(output_json_path, 'w', encoding='utf-8') as json_file:
-            json.dump(result, json_file, ensure_ascii=False, indent=4)
-
-        print(f"Результат сохранен в файл: {output_json_path}")
-
-    return result
-
-
-# Для автономного запуска
-if __name__ == "__main__":
-    # Настройки
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    checkpoint_path = r"C:\Users\CYBER ARTEL\PycharmProjects\atelectasis_classification_and_detection\best_deit_scm_model — копия.pth"
-    dicom_file_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_dicom\pre_dicom\test_atelectasis_5.dcm"
-    output_dir = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_json\post_json"
-
-    # Обработка
-    detector = AtelectasisDetector(checkpoint_path, device)
-    result = detector.process_dicom(dicom_file_path)
-
-    # Сохранение результата
-    os.makedirs(output_dir, exist_ok=True)
-    dicom_filename = os.path.splitext(os.path.basename(dicom_file_path))[0]
-    output_json_path = os.path.join(output_dir, dicom_filename + ".json")
-
-    with open(output_json_path, 'w', encoding='utf-8') as json_file:
-        json.dump(result, json_file, ensure_ascii=False, indent=4)
-
-    # Вывод результата
-    print(json.dumps(result, ensure_ascii=False, indent=4))

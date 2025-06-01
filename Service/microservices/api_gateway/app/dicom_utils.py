@@ -3,11 +3,13 @@ from pydicom.uid import ExplicitVRLittleEndian, generate_uid
 import cv2
 import datetime
 import numpy as np
+import os
 
 
 def create_dicom_from_png(png_path, output_dcm_path, add_patient_info=True):
     """
     Создает DICOM файл из PNG изображения с необходимыми тегами
+    Эта функция используется только для тестирования
     """
     # Загружаем PNG (грейскейл)
     img = cv2.imread(png_path, cv2.IMREAD_GRAYSCALE)
@@ -75,10 +77,3 @@ def create_dicom_from_png(png_path, output_dcm_path, add_patient_info=True):
     ds.save_as(output_dcm_path)
     print(f"Создан тестовый DICOM: {output_dcm_path}")
     return ds
-
-
-if __name__ == "__main__":
-    create_dicom_from_png(
-        r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\new_classes\Atelectasis\00003426_005.png",
-        r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_dicom\pre_dicom\test_atelectasis_5.dcm"
-    )

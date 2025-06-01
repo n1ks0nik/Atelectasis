@@ -8,8 +8,9 @@ import json
 
 class DicomHandler:
     def __init__(self, log_dir=None):
-        self.log_dir = log_dir or r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_dicom"
+        self.log_dir = log_dir or os.getenv('LOG_DIR', './logs')
         self.anonymization_log = os.path.join(self.log_dir, "anonymization.log")
+        os.makedirs(self.log_dir, exist_ok=True)
 
     def anonymize_dicom(self, ds: pydicom.Dataset, preserve_study_info=True) -> tuple:
         """
@@ -81,37 +82,9 @@ class DicomHandler:
         img = (img - img.min()) / (img.max() - img.min() + 1e-8) * 255.0
 
         # CLAHE + resize
-        #img = self.apply_clahe(img)
         img = cv2.resize(img, target_size)
 
         # Преобразование к 3 каналам для нейросети
         img_rgb = np.stack([img] * 3, axis=-1).astype(np.uint8)
 
         return img_rgb, metadata
-
-
-# Создаем глобальный экземпляр для обратной совместимости
-_handler = DicomHandler()
-preprocess_dicom = _handler.preprocess_dicom
-anonymize_dicom = _handler.anonymize_dicom
-apply_clahe = _handler.apply_clahe
-
-from pathlib import Path
-
-# Импортируй класс DicomHandler, если он в другом файле
-# from my_dicom_module import DicomHandler  # если ты сохранил этот код в отдельный модуль
-
-
-# Путь к DICOM-файлу
-dicom_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_dicom\pre_dicom\test_atelectasis_5.dcm"  # или полный путь: r"C:\path\to\input.dcm"
-
-# Предобработка DICOM: получаем изображение и метаданные
-img_rgb, metadata = _handler.preprocess_dicom(dicom_path)
-
-# Сохраняем предобработанное изображение (например, в PNG)
-import cv2
-cv2.imwrite("processed_image.png", img_rgb)
-
-# Выводим метаданные
-import json
-print(json.dumps(metadata, indent=2))

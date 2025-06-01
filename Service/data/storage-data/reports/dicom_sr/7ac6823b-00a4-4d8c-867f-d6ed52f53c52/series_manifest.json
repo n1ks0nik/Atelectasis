@@ -1,0 +1,11 @@
+{
+  "study_id": "7ac6823b-00a4-4d8c-867f-d6ed52f53c52",
+  "study_instance_uid": "1.2.826.0.1.3680043.8.498.61421364444500159739713729101748679034",
+  "created_at": "2025-06-01T21:08:11.089000",
+  "files": [
+    "7ac6823b-00a4-4d8c-867f-d6ed52f53c52_annotated.dcm",
+    "7ac6823b-00a4-4d8c-867f-d6ed52f53c52_sr.dcm"
+  ],
+  "total_instances": 2,
+  "description": "AI Atelectasis Analysis Report Series"
+}

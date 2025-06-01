@@ -5,6 +5,13 @@ from pydicom import dcmread, Dataset
 from pydicom.uid import generate_uid
 from pydicom.dataset import FileDataset
 import pydicom.uid
+import numpy as np
+import cv2
+from PIL import Image, ImageDraw, ImageFont
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 class DicomSRGenerator:
@@ -312,7 +319,6 @@ class DicomSRGenerator:
             root_container.ContentSequence.append(bbox_spatial_item)
 
         # 6. Дополнительные поля (не обязательные, но полезные)
-
         # Статус анализа
         status_item = self._create_text_content(
             "CONTAINS",
@@ -437,10 +443,10 @@ class DicomSRGenerator:
                 # ОБЯЗАТЕЛЬНЫЕ ПОЛЯ согласно требованиям
                 "atelectasis_probability": source_data['atelectasis_probability'],
                 "localization": {
-                    "xmin": source_data['bbox'][0],
-                    "ymin": source_data['bbox'][1],
-                    "xmax": source_data['bbox'][2],
-                    "ymax": source_data['bbox'][3],
+                    "xmin": source_data['bbox'][0] if source_data['bbox'] else None,
+                    "ymin": source_data['bbox'][1] if source_data['bbox'] else None,
+                    "xmax": source_data['bbox'][2] if source_data['bbox'] else None,
+                    "ymax": source_data['bbox'][3] if source_data['bbox'] else None,
                     "coordinate_system": "DICOM"
                 },
                 "conclusion": source_data['conclusion'],
@@ -477,6 +483,186 @@ class DicomSRGenerator:
         except Exception as e:
             print(f"❌ Ошибка при создании JSON отчета: {str(e)}")
             return False
+    
+
+    def create_annotated_image_dicom(self, original_ds, bbox, probability, output_path):
+        """
+        Создает DICOM с аннотированным изображением (Secondary Capture)
+        """
+        try:
+            # Извлекаем пиксельные данные
+            pixel_array = original_ds.pixel_array.astype(np.float32)
+            
+            # Применяем RescaleSlope и RescaleIntercept если есть
+            if hasattr(original_ds, 'RescaleSlope') and hasattr(original_ds, 'RescaleIntercept'):
+                pixel_array = pixel_array * original_ds.RescaleSlope + original_ds.RescaleIntercept
+            
+            # Нормализация к диапазону 0-255 для визуализации
+            pixel_array = ((pixel_array - pixel_array.min()) / 
+                          (pixel_array.max() - pixel_array.min() + 1e-8) * 255).astype(np.uint8)
+            
+            # Конвертируем в RGB для рисования цветных аннотаций
+            if len(pixel_array.shape) == 2:
+                img_rgb = cv2.cvtColor(pixel_array, cv2.COLOR_GRAY2RGB)
+            else:
+                img_rgb = pixel_array
+            
+            # Рисуем bbox если есть
+            if bbox and len(bbox) == 4:
+                x_min, y_min, x_max, y_max = bbox
+                # Красный прямоугольник
+                cv2.rectangle(img_rgb, (x_min, y_min), (x_max, y_max), (255, 0, 0), 3)
+                
+                # Добавляем текст с вероятностью
+                text = f"Atelectasis: {probability:.1%}"
+                font = cv2.FONT_HERSHEY_SIMPLEX
+                font_scale = 1.0
+                thickness = 2
+                
+                # Получаем размер текста
+                (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
+                
+                # Позиция текста (над bbox)
+                text_x = x_min
+                text_y = y_min - 10 if y_min - 10 > text_height else y_min + text_height + 10
+                
+                # Фон для текста
+                cv2.rectangle(img_rgb, 
+                            (text_x - 5, text_y - text_height - 5), 
+                            (text_x + text_width + 5, text_y + 5), 
+                            (0, 0, 0), -1)
+                
+                # Сам текст (белый)
+                cv2.putText(img_rgb, text, (text_x, text_y), font, 
+                           font_scale, (255, 255, 255), thickness)
+            
+            # Добавляем общую информацию
+            info_text = [
+                f"AI Analysis - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Status: {'Atelectasis Detected' if probability >= 0.7 else 'Normal'}",
+                "For research purposes only"
+            ]
+            
+            y_offset = 30
+            for i, line in enumerate(info_text):
+                cv2.putText(img_rgb, line, (10, y_offset + i * 25), 
+                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
+            
+            # Создаем новый DICOM Dataset для Secondary Capture
+            file_meta = Dataset()
+            file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.7'  # Secondary Capture
+            file_meta.MediaStorageSOPInstanceUID = generate_uid()
+            file_meta.ImplementationClassUID = generate_uid()
+            file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
+            
+            ds_annotated = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
+            
+            # Копируем метаданные пациента и исследования
+            ds_annotated.PatientName = getattr(original_ds, 'PatientName', "Anonymous^Patient")
+            ds_annotated.PatientID = getattr(original_ds, 'PatientID', "ANON_ID_001")
+            ds_annotated.PatientBirthDate = getattr(original_ds, 'PatientBirthDate', '')
+            ds_annotated.PatientSex = getattr(original_ds, 'PatientSex', '')
+            
+            # Study информация (та же, что и у оригинала)
+            ds_annotated.StudyInstanceUID = original_ds.StudyInstanceUID
+            ds_annotated.StudyDate = original_ds.StudyDate
+            ds_annotated.StudyTime = original_ds.StudyTime
+            ds_annotated.AccessionNumber = getattr(original_ds, 'AccessionNumber', '')
+            ds_annotated.StudyDescription = "AI Atelectasis Analysis with Annotations"
+            
+            # Series информация (новая серия)
+            ds_annotated.SeriesInstanceUID = generate_uid()
+            ds_annotated.SeriesNumber = 2  # Серия 2 для аннотированных изображений
+            ds_annotated.SeriesDescription = "AI Annotated Images"
+            ds_annotated.Modality = "OT"  # Other
+            
+            # SOP информация
+            ds_annotated.SOPClassUID = file_meta.MediaStorageSOPClassUID
+            ds_annotated.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
+            ds_annotated.InstanceNumber = 1
+            
+            # Image информация
+            ds_annotated.SamplesPerPixel = 3  # RGB
+            ds_annotated.PhotometricInterpretation = "RGB"
+            ds_annotated.Rows, ds_annotated.Columns = img_rgb.shape[:2]
+            ds_annotated.BitsAllocated = 8
+            ds_annotated.BitsStored = 8
+            ds_annotated.HighBit = 7
+            ds_annotated.PixelRepresentation = 0
+            ds_annotated.PlanarConfiguration = 0
+            
+            # Конвертируем изображение для DICOM
+            ds_annotated.PixelData = img_rgb.tobytes()
+            
+            # Добавляем информацию об аннотации
+            ds_annotated.ImageComments = f"AI detected atelectasis with {probability:.1%} probability"
+            ds_annotated.DerivationDescription = "AI annotated image showing detected pathology"
+            
+            # Сохраняем
+            ds_annotated.save_as(output_path)
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create annotated image: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def generate_complete_report(self, json_path, original_dicom_path, output_dir, study_id):
+        """
+        Генерирует полный отчет: аннотированное изображение + SR
+        """
+        try:
+            # Загружаем данные
+            with open(json_path, 'r', encoding='utf-8') as f:
+                report_data = json.load(f)
+            
+            original_ds = dcmread(original_dicom_path)
+            
+            # Создаем директорию для серии
+            series_dir = os.path.join(output_dir, study_id)
+            os.makedirs(series_dir, exist_ok=True)
+            
+            results = []
+            
+            # 1. Создаем аннотированное изображение если есть bbox
+            if report_data.get('bbox') and report_data.get('atelectasis_probability', 0) >= 0.7:
+                annotated_path = os.path.join(series_dir, f"{study_id}_annotated.dcm")
+                if self.create_annotated_image_dicom(
+                    original_ds, 
+                    report_data['bbox'],
+                    report_data['atelectasis_probability'],
+                    annotated_path
+                ):
+                    logger.info(f"✅ Annotated image created: {annotated_path}")
+                    results.append(annotated_path)
+            
+            # 2. Создаем SR отчет
+            sr_path = os.path.join(series_dir, f"{study_id}_sr.dcm")
+            if self.generate_sr_from_json(json_path, original_dicom_path, sr_path):
+                logger.info(f"✅ SR report created: {sr_path}")
+                results.append(sr_path)
+            
+            # Создаем файл-манифест серии
+            manifest_path = os.path.join(series_dir, "series_manifest.json")
+            manifest = {
+                "study_id": study_id,
+                "study_instance_uid": str(original_ds.StudyInstanceUID),
+                "created_at": datetime.now().isoformat(),
+                "files": [os.path.basename(f) for f in results],
+                "total_instances": len(results),
+                "description": "AI Atelectasis Analysis Report Series"
+            }
+            
+            with open(manifest_path, 'w') as f:
+                json.dump(manifest, f, indent=2)
+            
+            return results
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to generate complete report: {e}")
+            return []
 
 
 def generate_dicom_sr_from_json(json_path, original_dicom_path, output_path):
@@ -486,42 +672,9 @@ def generate_dicom_sr_from_json(json_path, original_dicom_path, output_path):
     generator = DicomSRGenerator()
     return generator.generate_sr_from_json(json_path, original_dicom_path, output_path)
 
-
 def generate_json_api_report(json_input_path, json_output_path):
     """
     Генерирует стандартизированный JSON отчет для API
     """
     generator = DicomSRGenerator()
     return generator.generate_json_report(json_input_path, json_output_path)
-
-
-# Для автономного тестирования
-if __name__ == "__main__":
-    # Пути к файлам
-    json_report_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_json\post_json\test_atelectasis_5.json"
-    original_dicom_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\fake_dicom\pre_dicom\test_atelectasis_5.dcm"
-    output_sr_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\results\dicom_sr\test_atelectasis_5_sr.dcm"
-    output_json_api_path = r"C:\Users\CYBER ARTEL\.cache\kagglehub\datasets\nih-chest-xrays\data\nih_custom_dataset\results\json_api\test_atelectasis_5_api.json"
-
-    # Создаем директории если не существуют
-    os.makedirs(os.path.dirname(output_sr_path), exist_ok=True)
-    os.makedirs(os.path.dirname(output_json_api_path), exist_ok=True)
-
-    generator = DicomSRGenerator()
-
-    print("=== ГЕНЕРАЦИЯ DICOM SR ===")
-    success_sr = generator.generate_sr_from_json(json_report_path, original_dicom_path, output_sr_path)
-
-    print("\n=== ГЕНЕРАЦИЯ JSON ДЛЯ API ===")
-    success_json = generator.generate_json_report(json_report_path, output_json_api_path)
-
-    if success_sr and success_json:
-        print("\n✅ Все отчеты созданы успешно!")
-        print(f"📄 DICOM SR: {output_sr_path}")
-        print(f"📄 JSON API: {output_json_api_path}")
-    else:
-        print("\n❌ Некоторые отчеты не были созданы")
-        if success_sr:
-            print(f"✅ DICOM SR создан: {output_sr_path}")
-        if success_json:
-            print(f"✅ JSON API создан: {output_json_api_path}")

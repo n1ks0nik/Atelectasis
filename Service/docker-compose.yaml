@@ -1,11 +1,13 @@
 services:
   api:
-    build: .
+    build: ./microservices/api_gateway
     container_name: api
     ports:
       - "8000:8000"
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
+    volumes:
+      - ./data/shared-data:/app/uploads
     depends_on:
       kafka:
         condition: service_healthy
@@ -13,10 +15,14 @@ services:
       - kafka-network
 
   processing:
-    build: ./Service/microservices/ai_processor
+    build: ./microservices/ai_processor
     container_name: processing
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
+    volumes:
+      - ./data/processing-data:/app/output
+      - ./data/processing-data/logs:/app/logs
+      - ./data/shared-data:/app/uploads
     depends_on:
       kafka:
         condition: service_healthy
@@ -25,10 +31,14 @@ services:
       - kafka-network
 
   storage_reporting:
-    build: ./Service/microservices/storage_service
+    build: ./microservices/storage_service
     container_name: storage_reporting
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
+    volumes:
+      - ./data/storage-data/storage:/app/storage
+      - ./data/storage-data/reports:/app/reports
+      - ./data/shared-data:/app/uploads
     depends_on:
       kafka:
         condition: service_healthy

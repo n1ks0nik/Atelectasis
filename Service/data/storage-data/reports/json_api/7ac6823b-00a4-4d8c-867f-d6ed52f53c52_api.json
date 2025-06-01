@@ -1,0 +1,38 @@
+{
+    "atelectasis_probability": 0.9943498969078064,
+    "localization": {
+        "xmin": 585,
+        "ymin": 580,
+        "xmax": 763,
+        "ymax": 758,
+        "coordinate_system": "DICOM"
+    },
+    "conclusion": "Обнаружены признаки ателектаза (вероятность: 99.4%). Требуется подтверждение врача.",
+    "warning": "Заключение сгенерировано ИИ. Требуется подтверждение врача.",
+    "status": "atelectasis_only",
+    "location_description": "middle zone, right lung",
+    "other_pathologies": [],
+    "confidence_levels": [],
+    "metadata": {
+        "observer_type": "AI",
+        "software_version": "1.0",
+        "manufacturer": "AtelectasisAI",
+        "generation_timestamp": "2025-06-01T21:08:11.099608",
+        "original_metadata": {
+            "StudyInstanceUID": "1.2.826.0.1.3680043.8.498.61421364444500159739713729101748679034",
+            "SeriesInstanceUID": "1.2.826.0.1.3680043.8.498.70510008589532133254053926047321843271",
+            "SOPInstanceUID": "1.2.826.0.1.3680043.8.498.53758870010797640216181524030983790215",
+            "Modality": "DX",
+            "ViewPosition": "PA",
+            "anonymized_data": {
+                "PatientName": "Test^Patient^Name",
+                "PatientBirthDate": "19800101",
+                "PatientSex": "M",
+                "InstitutionName": "Test Hospital"
+            }
+        }
+    },
+    "api_version": "1.0",
+    "report_type": "atelectasis_detection",
+    "format": "JSON"
+}
