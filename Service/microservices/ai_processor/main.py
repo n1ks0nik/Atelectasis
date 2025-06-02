@@ -21,11 +21,7 @@ from detector import AtelectasisDetector
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
-current_dir = Path(__file__).resolve().parent
-parent_dir = current_dir.parent.parent
-env_path = parent_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC_RAW = os.getenv("TOPIC_RAW", "raw-images")

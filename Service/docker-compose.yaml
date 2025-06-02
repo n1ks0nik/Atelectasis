@@ -2,14 +2,20 @@ services:
   api:
     build: ./microservices/api_gateway
     container_name: api
+    env_file:
+      - .env
     ports:
       - "8000:8000"
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
+      POSTGRES_HOST: postgres
     volumes:
       - ./data/shared-data:/app/uploads
+      - ./microservices/shared:/app/shared
     depends_on:
       kafka:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     networks:
       - kafka-network
@@ -17,6 +23,8 @@ services:
   processing:
     build: ./microservices/ai_processor
     container_name: processing
+    env_file:
+      - .env
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
     volumes:
@@ -26,6 +34,8 @@ services:
     depends_on:
       kafka:
         condition: service_healthy
+      postgres:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - kafka-network
@@ -33,18 +43,46 @@ services:
   storage_reporting:
     build: ./microservices/storage_service
     container_name: storage_reporting
+    env_file:
+      - .env
     environment:
       KAFKA_BOOTSTRAP: kafka:9092
+      POSTGRES_HOST: postgres
     volumes:
       - ./data/storage-data/storage:/app/storage
       - ./data/storage-data/reports:/app/reports
       - ./data/shared-data:/app/uploads
+      - ./microservices/shared:/app/shared
     depends_on:
       kafka:
+        condition: service_healthy
+      postgres:
         condition: service_healthy
     restart: unless-stopped
     networks:
       - kafka-network
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: postgres
+    env_file:
+      - .env
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-secretpassword}
+      POSTGRES_DB: ${POSTGRES_DB:-atelectasis_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data/storage-data/storage:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - kafka-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-atelectasis_db}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
 
   zookeeper:
     image: confluentinc/cp-zookeeper:7.4.0

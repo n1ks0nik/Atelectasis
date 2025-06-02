@@ -9,6 +9,8 @@ testing_features/
 
 app/tmp/
 
+data/
+
 .idea/
 
 

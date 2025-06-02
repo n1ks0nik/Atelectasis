@@ -177,79 +177,6 @@ def test_get_result(study_id):
     return False
 
 
-def test_storage_service(study_id):
-    """
-    Проверка работы storage service через проверку созданных файлов
-    """
-    print("\n💾 Testing Storage Service functionality...")
-
-    # Даем время на обработку storage service
-    print("⏳ Waiting for storage service to process results...")
-    time.sleep(3)
-
-    # Проверяем создание отчетов
-    reports_dir = Path("./reports")  # Путь должен соответствовать REPORTS_DIR в storage service
-
-    checks = {
-        "JSON Report": reports_dir / "json" / f"{study_id}_report.json",
-        "API JSON": reports_dir / "json_api" / f"{study_id}_api.json",
-        "DICOM SR": reports_dir / "dicom_sr" / f"{study_id}_sr.dcm"
-    }
-
-    all_passed = True
-
-    for report_type, file_path in checks.items():
-        if file_path.exists():
-            print(f"✅ {report_type} created: {file_path}")
-
-            # Для JSON файлов показываем содержимое
-            if file_path.suffix == '.json':
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-
-                    if report_type == "JSON Report":
-                        print(f"   - Status: {data.get('status')}")
-                        print(f"   - Atelectasis probability: {data.get('atelectasis_probability', 0):.2%}")
-                        if data.get('bbox'):
-                            print(f"   - Bounding box: {data.get('bbox')}")
-                        print(f"   - Conclusion: {data.get('conclusion', 'N/A')[:100]}...")
-
-                    elif report_type == "API JSON":
-                        print(f"   - API version: {data.get('api_version')}")
-                        print(f"   - Report type: {data.get('report_type')}")
-                        if data.get('localization'):
-                            loc = data['localization']
-                            print(
-                                f"   - Localization: [{loc.get('xmin')}, {loc.get('ymin')}, {loc.get('xmax')}, {loc.get('ymax')}]")
-
-                except Exception as e:
-                    print(f"   ⚠️ Error reading {report_type}: {e}")
-
-            elif report_type == "DICOM SR":
-                print(f"   - File size: {file_path.stat().st_size} bytes")
-        else:
-            print(f"❌ {report_type} NOT found at: {file_path}")
-            all_passed = False
-
-            # Проверяем, существует ли директория
-            if not file_path.parent.exists():
-                print(f"   ⚠️ Directory doesn't exist: {file_path.parent}")
-
-    # Проверяем логи storage service
-    storage_log_indicators = [
-        "JSON report saved",
-        "API JSON report generated",
-        "Result successfully stored"
-    ]
-
-    print("\n📋 Storage Service indicators to check in logs:")
-    for indicator in storage_log_indicators:
-        print(f"   - Look for: '{indicator}'")
-
-    return all_passed
-
-
 def test_multiple_studies():
     """
     Тест с несколькими исследованиями для проверки хранилища
@@ -293,11 +220,6 @@ def test_multiple_studies():
 
     print(f"\n📈 Summary: {len(successful_studies)}/{len(study_ids)} studies completed successfully")
 
-    # Проверяем файлы для всех успешных исследований
-    if successful_studies:
-        print("\n💾 Checking storage for all successful studies...")
-        for study_id in successful_studies:
-            test_storage_service(study_id)
 
 
 def run_full_test():
@@ -323,12 +245,6 @@ def run_full_test():
 
     if test_get_result(study_id):
         print("\n✅ Analysis completed successfully!")
-
-        # 4. Проверка storage service
-        if test_storage_service(study_id):
-            print("\n✅ Storage Service test passed!")
-        else:
-            print("\n⚠️ Storage Service test partially failed")
     else:
         print("\n❌ Analysis failed")
 
@@ -448,7 +364,6 @@ def interactive_menu():
         print("6. Create test DICOM from PNG")
         print("7. Test multiple studies")
         print("8. Check system statistics")
-        print("9. Test storage service only (requires study_id)")
         print("0. Exit")
         print("=" * 50)
 
@@ -462,9 +377,7 @@ def interactive_menu():
             study_id = test_analyze_dicom()
             if study_id:
                 input("\nPress Enter to check result...")
-                if test_get_result(study_id):
-                    input("\nPress Enter to test storage service...")
-                    test_storage_service(study_id)
+                test_get_result(study_id)
         elif choice == "4":
             test_invalid_file()
         elif choice == "5":
@@ -475,12 +388,6 @@ def interactive_menu():
             test_multiple_studies()
         elif choice == "8":
             check_system_statistics()
-        elif choice == "9":
-            study_id = input("Enter study_id to check: ").strip()
-            if study_id:
-                test_storage_service(study_id)
-            else:
-                print("❌ Invalid study_id")
         elif choice == "0":
             print("👋 Goodbye!")
             break

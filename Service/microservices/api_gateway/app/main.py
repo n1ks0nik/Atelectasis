@@ -1,4 +1,4 @@
-import os
+import os, sys
 import asyncio
 import logging
 import json
@@ -17,20 +17,21 @@ from pydantic import BaseModel
 from aiokafka import AIOKafkaProducer
 from aiokafka.errors import KafkaConnectionError
 from dotenv import load_dotenv
+import pydicom
 
 # Импорты из модулей сервиса
 from validators import DicomValidator
 from dicom_utils import create_dicom_from_png
 
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(project_root)
+from  shared.database import db_manager
+
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
-current_dir = Path(__file__).resolve().parent
-parent_dir = current_dir.parent.parent.parent
-env_path = parent_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC_RAW = os.getenv("TOPIC_RAW", "raw-images")
@@ -97,6 +98,14 @@ async def startup_event():
 
     logger.info("🚀 Starting API Gateway Service...")
 
+    # Подключаемся к БД
+    try:
+        await db_manager.connect()
+        logger.info("✅ Connected to PostgreSQL")
+    except Exception as e:
+        logger.error(f"❌ Failed to connect to database: {e}")
+        raise
+
     # Ждем готовности Kafka
     try:
         await wait_for_kafka_ready(KAFKA_BOOTSTRAP)
@@ -121,6 +130,11 @@ async def startup_event():
 async def shutdown_event():
     """Очистка при остановке"""
     global producer
+
+    # Отключаемся от БД
+    await db_manager.disconnect()
+    logger.info("✅ Disconnected from PostgreSQL")
+
     if producer:
         await producer.stop()
         logger.info("✅ Kafka producer stopped")
@@ -200,6 +214,14 @@ async def analyze_dicom(
             }
         }
 
+        await db_manager.create_study(
+            study_id=study_id,
+            study_instance_uid=pydicom.dcmread(temp_file_path).StudyInstanceUID,
+            user_token=credentials.credentials,
+            filename=file.filename,
+            file_size=file.size
+        )
+
         # Отправляем в Kafka
         await producer.send_and_wait(TOPIC_RAW, kafka_message)
 
@@ -246,14 +268,63 @@ async def get_result(
     """
     Получение результата анализа по study_id
     """
-    # TODO: Реализовать получение результата из storage service
-    # Пока возвращаем заглушку
+    # Получаем из БД
+    study = await db_manager.get_study(study_id)
 
-    return {
+    if not study:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Study not found"
+        )
+
+    # Формируем ответ
+    response = {
         "study_id": study_id,
-        "status": "processing",
-        "message": "Результат еще не готов"
+        "status": study['status'],
+        "created_at": study['created_at'].isoformat() if study['created_at'] else None,
+        "updated_at": study['updated_at'].isoformat() if study['updated_at'] else None
     }
+
+    if study['status'] == 'completed':
+        # Добавляем результаты анализа
+        if study['result_status']:
+            response['results'] = {
+                "status": study['result_status'],
+                "atelectasis_probability": float(study['atelectasis_probability']) if study[
+                    'atelectasis_probability'] else None,
+                "processing_time": float(study['processing_time']) if study['processing_time'] else None,
+                "conclusion": study['conclusion'],
+                "location": study['location_description']
+            }
+
+            if study['bbox_xmin'] is not None:
+                response['results']['bbox'] = [
+                    study['bbox_xmin'],
+                    study['bbox_ymin'],
+                    study['bbox_xmax'],
+                    study['bbox_ymax']
+                ]
+
+        # Добавляем пути к файлам
+        report_paths = await db_manager.get_report_paths(study_id)
+        if report_paths:
+            response['reports'] = report_paths
+
+    elif study['status'] == 'error':
+        response['error'] = study['error_message']
+
+    return response
+
+
+@app.get("/statistics")
+async def get_statistics(
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """
+    Получение общей статистики системы
+    """
+    stats = await db_manager.get_statistics()
+    return stats
 
 
 @app.post("/test/create_dicom")

@@ -12,20 +12,16 @@ from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaConnectionError, GroupCoordinatorNotAvailableError, KafkaError
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-import pydicom
+from  shared.database import db_manager
 
 # Импорты из модулей сервиса
-from report_generator import DicomSRGenerator, generate_dicom_sr_from_json, generate_json_api_report
+from report_generator import DicomSRGenerator
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Загрузка переменных окружения
-current_dir = Path(__file__).resolve().parent
-parent_dir = current_dir.parent.parent
-env_path = parent_dir / '.env'
-load_dotenv(dotenv_path=env_path)
+load_dotenv()
 
 KAFKA_BOOTSTRAP = os.getenv("KAFKA_BOOTSTRAP", "kafka:9092")
 TOPIC_RAW = os.getenv("TOPIC_RAW", "raw-images")
@@ -42,9 +38,6 @@ os.makedirs(os.path.join(REPORTS_DIR, "json_api"), exist_ok=True)
 
 # Глобальный генератор отчетов
 report_generator: DicomSRGenerator = None
-
-# Временное хранилище результатов (в реальной системе - база данных)
-results_storage: Dict[str, Any] = {}
 
 
 async def wait_for_kafka_ready(bootstrap_servers, max_retries=15, delay=5):
@@ -104,12 +97,30 @@ async def ensure_topics(bootstrap, topics):
         await admin.close()
 
 
+async def connect_to_database():
+    """Подключение к БД с повторными попытками"""
+    max_retries = 10
+    for attempt in range(max_retries):
+        try:
+            await db_manager.connect()
+            logger.info("✅ Connected to PostgreSQL")
+            return
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to connect to DB (attempt {attempt + 1}/{max_retries}): {e}")
+            await asyncio.sleep(5)
+
+    raise RuntimeError("❌ Cannot connect to database")
+
+
 def initialize_storage_components():
     """Инициализация компонентов хранилища"""
     global report_generator
 
     logger.info("💾 Initializing storage components...")
     report_generator = DicomSRGenerator()
+
+    asyncio.create_task(connect_to_database())
+
     logger.info("✅ Storage components initialized successfully")
 
 
@@ -124,17 +135,18 @@ async def process_and_store_result(result_data: Dict[str, Any]):
     logger.info(f"💾 Processing result for study_id: {study_id}, status: {status}")
 
     try:
-        # Сохраняем результат в хранилище
-        results_storage[study_id] = result_data
+        await db_manager.save_analysis_result(study_id, result_data)
 
         if status == "completed" and result_data.get("results"):
             results = result_data["results"]
+            report_paths = {}
 
             # Сохраняем основной JSON отчет
             json_report_path = os.path.join(REPORTS_DIR, "json", f"{study_id}_report.json")
             with open(json_report_path, 'w', encoding='utf-8') as f:
                 json.dump(results, f, ensure_ascii=False, indent=4)
             logger.info(f"✅ JSON report saved: {json_report_path}")
+            report_paths['json_report'] = json_report_path
 
             # Генерируем DICOM SR
             if original_dicom_path and os.path.exists(original_dicom_path):
@@ -145,16 +157,22 @@ async def process_and_store_result(result_data: Dict[str, Any]):
                         os.path.join(REPORTS_DIR, "dicom_sr"),
                         study_id
                     )
-                    
+
                     if dicom_files:
                         logger.info(f"✅ Complete DICOM report generated: {len(dicom_files)} files")
-                        result_data["dicom_files"] = dicom_files
-                        result_data["dicom_series_path"] = os.path.join(REPORTS_DIR, "dicom_sr", study_id)
+                        report_paths['dicom_series'] = os.path.join(REPORTS_DIR, "dicom_sr", study_id)
+
+                        for file_path in dicom_files:
+                            if 'annotated' in file_path:
+                                report_paths['dicom_annotated'] = file_path
+                            elif 'sr' in file_path:
+                                report_paths['dicom_sr'] = file_path
+
                 except Exception as e:
                     logger.error(f"❌ Failed to generate DICOM report: {e}")
                     import traceback
                     traceback.print_exc()
-                    
+
             else:
                 logger.warning(f"⚠️ Original DICOM not found at: {original_dicom_path}")
 
@@ -164,98 +182,39 @@ async def process_and_store_result(result_data: Dict[str, Any]):
                 success = report_generator.generate_json_report(json_report_path, api_json_path)
                 if success:
                     logger.info(f"✅ API JSON report generated: {api_json_path}")
-                    result_data["api_json_path"] = api_json_path
+                    report_paths['api_json'] = api_json_path
             except Exception as e:
                 logger.error(f"❌ Failed to generate API JSON: {e}")
 
-            # Обновляем хранилище с путями к отчетам
-            results_storage[study_id] = result_data
+            # Сохраняем пути к файлам в БД
+            await db_manager.save_report_paths(study_id, report_paths)
 
-            # Логируем статистику
-            if results.get("status") == "atelectasis_only":
-                logger.info(f"🔴 Atelectasis detected! Probability: {results.get('atelectasis_probability', 0):.2%}")
-            elif results.get("status") == "normal":
-                logger.info(
-                    f"🟢 Normal result. Atelectasis probability: {results.get('atelectasis_probability', 0):.2%}")
-            elif results.get("status") == "other_pathologies":
-                logger.info(
-                    f"🟡 Other pathologies detected. Atelectasis probability: {results.get('atelectasis_probability', 0):.2%}"
-                )
+            # Обновляем статус на completed
+            await db_manager.update_study_status(study_id, 'completed')
+
+
         elif status == "error":
-            # Сохраняем информацию об ошибке
-            error_info = {
-                "study_id": study_id,
-                "status": "error",
-                "error": result_data.get("error"),
-                "timestamp": result_data.get("timestamp_processed"),
-                "processing_time": result_data.get("processing_time")
-            }
+            # Обновляем статус на error
+            await db_manager.update_study_status(study_id, 'error')
 
-            error_path = os.path.join(REPORTS_DIR, "json", f"{study_id}_error.json")
-            with open(error_path, 'w', encoding='utf-8') as f:
-                json.dump(error_info, f, ensure_ascii=False, indent=4)
-
-            logger.error(f"❌ Error result saved: {error_path}")
-
-        # Добавляем метаданные о сохранении
-        result_data["stored_at"] = datetime.now().isoformat()
-        results_storage[study_id] = result_data
-
-        logger.info(f"✅ Result successfully stored for study_id: {study_id}")
+        logger.info(f"✅ Result successfully stored in database for study_id: {study_id}")
 
     except Exception as e:
         logger.error(f"❌ Failed to store result for study_id {study_id}: {e}")
-        # Сохраняем минимальную информацию об ошибке
-        results_storage[study_id] = {
-            "study_id": study_id,
-            "status": "storage_error",
-            "error": str(e),
-            "timestamp": datetime.now().isoformat()
-        }
-
-    if original_dicom_path and os.path.exists(original_dicom_path):
+        # Обновляем статус на storage_error
         try:
-            os.remove(original_dicom_path)
-            logger.info(f"🗑️ Temporary DICOM file removed: {original_dicom_path}")
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to remove temporary file: {e}")
+            await db_manager.update_study_status(study_id, 'storage_error')
+        except:
+            pass
 
-
-def get_result_by_study_id(study_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Получение результата по study_id
-    В реальной системе должно быть подключение к БД
-    """
-    return results_storage.get(study_id)
-
-
-async def cleanup_old_results():
-    """
-    Периодическая очистка старых результатов
-    """
-    while True:
-        try:
-            await asyncio.sleep(3600)  # Каждый час
-
-            current_time = datetime.now()
-            to_remove = []
-
-            for study_id, result in results_storage.items():
-                # Удаляем результаты старше 24 часов
-                if "stored_at" in result:
-                    stored_time = datetime.fromisoformat(result["stored_at"])
-                    if (current_time - stored_time).total_seconds() > 86400:  # 24 часа
-                        to_remove.append(study_id)
-
-            for study_id in to_remove:
-                del results_storage[study_id]
-                logger.info(f"🗑️ Removed old result: {study_id}")
-
-            if to_remove:
-                logger.info(f"✅ Cleaned up {len(to_remove)} old results")
-
-        except Exception as e:
-            logger.error(f"❌ Error in cleanup task: {e}")
+    finally:
+        # Удаляем временный файл после всей обработки
+        if original_dicom_path and os.path.exists(original_dicom_path):
+            try:
+                os.remove(original_dicom_path)
+                logger.info(f"🗑️ Temporary DICOM file removed: {original_dicom_path}")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to remove temporary file: {e}")
 
 
 async def store_loop():
@@ -292,9 +251,6 @@ async def store_loop():
 
     logger.info("✅ Storage Service ready, waiting for results...")
 
-    # Запускаем задачу очистки в фоне
-    cleanup_task = asyncio.create_task(cleanup_old_results())
-
     try:
         while True:
             try:
@@ -319,14 +275,6 @@ async def store_loop():
                             # Обрабатываем и сохраняем результат
                             await process_and_store_result(result_data)
 
-                            # Логируем статистику
-                            total_results = len(results_storage)
-                            completed = sum(1 for r in results_storage.values() if r.get("status") == "completed")
-                            errors = sum(1 for r in results_storage.values() if r.get("status") == "error")
-
-                            logger.info(
-                                f"📊 Storage stats - Total: {total_results}, Completed: {completed}, Errors: {errors}")
-
                         except Exception as e:
                             logger.error(f"❌ Error processing result: {e}")
                             import traceback
@@ -344,109 +292,11 @@ async def store_loop():
     except KeyboardInterrupt:
         logger.info("🛑 Shutting down Storage Service...")
     finally:
-        cleanup_task.cancel()
         await consumer.stop()
+        await db_manager.disconnect()
         logger.info("✅ Storage Service stopped")
 
 
-# API endpoints для получения результатов (для интеграции с API Gateway)
-async def get_study_result(study_id: str) -> Optional[Dict[str, Any]]:
-    """
-    Получить результат исследования по ID
-    Эта функция может быть вызвана через gRPC или REST API
-    """
-    result = get_result_by_study_id(study_id)
-
-    if not result:
-        return None
-
-    # Формируем ответ для API
-    response = {
-        "study_id": study_id,
-        "status": result.get("status"),
-        "processing_time": result.get("processing_time"),
-        "timestamp_processed": result.get("timestamp_processed")
-    }
-
-    if result.get("status") == "completed":
-        # Добавляем результаты анализа
-        if result.get("results"):
-            response["results"] = result["results"]
-
-        # Добавляем пути к отчетам
-        if result.get("api_json_path") and os.path.exists(result["api_json_path"]):
-            with open(result["api_json_path"], 'r', encoding='utf-8') as f:
-                response["detailed_report"] = json.load(f)
-
-        if result.get("dicom_sr_path"):
-            response["dicom_sr_available"] = True
-            response["dicom_sr_path"] = result["dicom_sr_path"]
-
-    elif result.get("status") == "error":
-        response["error"] = result.get("error")
-
-    return response
-
-
-async def get_study_statistics() -> Dict[str, Any]:
-    """
-    Получить статистику по всем исследованиям
-    """
-    total = len(results_storage)
-    completed = sum(1 for r in results_storage.values() if r.get("status") == "completed")
-    errors = sum(1 for r in results_storage.values() if r.get("status") == "error")
-    processing = sum(1 for r in results_storage.values() if r.get("status") == "processing")
-
-    # Статистика по патологиям
-    atelectasis_count = 0
-    normal_count = 0
-    other_pathologies_count = 0
-
-    for result in results_storage.values():
-        if result.get("status") == "completed" and result.get("results"):
-            results = result["results"]
-            if results.get("status") == "atelectasis_only":
-                atelectasis_count += 1
-            elif results.get("status") == "normal":
-                normal_count += 1
-            elif results.get("status") == "other_pathologies":
-                other_pathologies_count += 1
-
-    # Средняя вероятность ателектаза
-    atelectasis_probs = []
-    for result in results_storage.values():
-        if result.get("status") == "completed" and result.get("results"):
-            prob = result["results"].get("atelectasis_probability")
-            if prob is not None:
-                atelectasis_probs.append(prob)
-
-    avg_atelectasis_prob = sum(atelectasis_probs) / len(atelectasis_probs) if atelectasis_probs else 0
-
-    # Среднее время обработки
-    processing_times = []
-    for result in results_storage.values():
-        if result.get("processing_time") is not None:
-            processing_times.append(result["processing_time"])
-
-    avg_processing_time = sum(processing_times) / len(processing_times) if processing_times else 0
-
-    return {
-        "total_studies": total,
-        "completed": completed,
-        "errors": errors,
-        "processing": processing,
-        "pathology_statistics": {
-            "atelectasis": atelectasis_count,
-            "normal": normal_count,
-            "other_pathologies": other_pathologies_count
-        },
-        "average_atelectasis_probability": avg_atelectasis_prob,
-        "average_processing_time": avg_processing_time,
-        "last_update": datetime.now().isoformat()
-    }
-
-
-# ТОЧКА ВХОДА - ЭТО БЫЛО ПРОПУЩЕНО!
 if __name__ == "__main__":
     try:
         asyncio.run(store_loop())
