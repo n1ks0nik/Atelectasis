@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Результаты анализа - Atelectasis Detection</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-lungs"></i>
+            <span>Atelectasis Detection</span>
+        </div>
+        <div class="nav-links">
+            <a href="/"><i class="fas fa-chart-line"></i> Дашборд</a>
+            <a href="/upload"><i class="fas fa-upload"></i> Загрузка</a>
+            <a href="/results" class="active"><i class="fas fa-list"></i> Результаты</a>
+            <a href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Выход</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h1><i class="fas fa-list"></i> Результаты анализа</h1>
+            <p>Просмотр и управление результатами исследований</p>
+        </header>
+
+        <!-- Фильтры -->
+        <div class="filters-section">
+            <div class="filters">
+                <div class="filter-group">
+                    <label>Статус:</label>
+                    <select id="status-filter">
+                        <option value="">Все</option>
+                        <option value="processing">В обработке</option>
+                        <option value="completed">Завершено</option>
+                        <option value="error">Ошибка</option>
+                    </select>
+                </div>
+                <div class="filter-group">
+                    <label>Поиск по файлу:</label>
+                    <input type="text" id="filename-filter" placeholder="Введите название файла">
+                </div>
+                <button class="btn btn-outline" onclick="applyFilters()">
+                    <i class="fas fa-filter"></i>
+                    Применить
+                </button>
+                <button class="btn btn-outline" onclick="refreshResults()">
+                    <i class="fas fa-sync-alt"></i>
+                    Обновить
+                </button>
+            </div>
+        </div>
+
+        <!-- Таблица результатов -->
+        <div class="results-table">
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID исследования</th>
+                        <th>Файл</th>
+                        <th>Статус</th>
+                        <th>Создано</th>
+                        <th>Результат ИИ</th>
+                        <th>Вероятность</th>
+                        <th>Действия</th>
+                    </tr>
+                </thead>
+                <tbody id="results-tbody">
+                    <tr>
+                        <td colspan="7" class="loading">
+                            <i class="fas fa-spinner fa-spin"></i>
+                            Загрузка результатов...
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Пагинация -->
+        <div class="pagination" id="pagination">
+            <button class="btn btn-outline" onclick="loadPage(currentPage - 1)" id="prev-btn" disabled>
+                <i class="fas fa-chevron-left"></i>
+                Предыдущая
+            </button>
+            <span id="page-info">Страница 1 из 1</span>
+            <button class="btn btn-outline" onclick="loadPage(currentPage + 1)" id="next-btn" disabled>
+                Следующая
+                <i class="fas fa-chevron-right"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Модальное окно с подробной информацией -->
+    <div class="modal" id="result-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3><i class="fas fa-file-medical-alt"></i> Подробная информация</h3>
+                <button class="modal-close" onclick="closeModal()">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Контент будет загружен динамически -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal()">Закрыть</button>
+                <button class="btn btn-primary" onclick="downloadReports()" id="download-btn">
+                    <i class="fas fa-download"></i>
+                    Скачать отчеты
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Модальное окно для просмотра DICOM -->
+    <div class="modal" id="dicom-modal">
+        <div class="modal-content large">
+            <div class="modal-header">
+                <h3><i class="fas fa-eye"></i> Просмотр DICOM</h3>
+                <button class="modal-close" onclick="closeDicomModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="dicom-viewer">
+                    <canvas id="dicom-canvas"></canvas>
+                    <div class="dicom-controls">
+                        <button class="btn btn-outline" onclick="adjustContrast(-10)">
+                            <i class="fas fa-adjust"></i>
+                            Темнее
+                        </button>
+                        <button class="btn btn-outline" onclick="adjustContrast(10)">
+                            <i class="fas fa-adjust"></i>
+                            Светлее
+                        </button>
+                        <button class="btn btn-outline" onclick="resetView()">
+                            <i class="fas fa-undo"></i>
+                            Сброс
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/auth.js"></script>
+    <script src="/static/results.js"></script>
+    <script src="/static/dicom-viewer.js"></script>
+</body>
+</html>

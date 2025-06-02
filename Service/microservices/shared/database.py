@@ -59,6 +59,29 @@ class DatabaseManager:
             """, study_id, study_instance_uid, user_token, filename, file_size)
         return study_id
 
+    async def check_study_exists(self, study_instance_uid: str) -> bool:
+        """Проверка существования исследования по Study Instance UID"""
+        async with self.acquire() as conn:
+            result = await conn.fetchval("""
+                SELECT COUNT(*) FROM studies WHERE study_instance_uid = $1
+            """, study_instance_uid)
+            return result > 0
+
+    async def get_existing_study(self, study_instance_uid: str) -> Optional[Dict[str, Any]]:
+        """Получение существующего исследования по Study Instance UID"""
+        async with self.acquire() as conn:
+            row = await conn.fetchrow("""
+                SELECT study_id, filename, status, created_at 
+                FROM studies 
+                WHERE study_instance_uid = $1 
+                ORDER BY created_at DESC 
+                LIMIT 1
+            """, study_instance_uid)
+
+            if row:
+                return dict(row)
+            return None
+
     async def update_study_status(self, study_id: str, status: str):
         """Обновление статуса исследования"""
         async with self.acquire() as conn:
@@ -175,9 +198,9 @@ class DatabaseManager:
             stats = await conn.fetchrow("""
                 SELECT 
                     COUNT(*) as total_studies,
-                    COUNT(CASE WHEN status = 'completed' THEN 1 END) as completed,
-                    COUNT(CASE WHEN status = 'error' THEN 1 END) as errors,
-                    COUNT(CASE WHEN status = 'processing' THEN 1 END) as processing,
+                    COUNT(CASE WHEN s.status = 'completed' THEN 1 END) as completed,
+                    COUNT(CASE WHEN s.status = 'error' THEN 1 END) as errors,
+                    COUNT(CASE WHEN s.status = 'processing' THEN 1 END) as processing,
                     AVG(ar.processing_time) as avg_processing_time,
                     AVG(ar.atelectasis_probability) as avg_atelectasis_probability
                 FROM studies s

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Atelectasis Detection System - Дашборд</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-lungs"></i>
+            <span>Atelectasis Detection</span>
+        </div>
+        <div class="nav-links">
+            <a href="/" class="active"><i class="fas fa-chart-line"></i> Дашборд</a>
+            <a href="/upload"><i class="fas fa-upload"></i> Загрузка</a>
+            <a href="/results"><i class="fas fa-list"></i> Результаты</a>
+            <a href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Выход</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h1><i class="fas fa-chart-line"></i> Дашборд системы</h1>
+            <p>Мониторинг анализа рентгенограмм легких</p>
+        </header>
+
+        <!-- Карточки статистики -->
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-icon">
+                    <i class="fas fa-file-medical"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="total-studies">0</h3>
+                    <p>Всего исследований</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon success">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="completed-studies">0</h3>
+                    <p>Завершено</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon processing">
+                    <i class="fas fa-spinner fa-spin"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="processing-studies">0</h3>
+                    <p>В обработке</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <div class="stat-content">
+                    <h3 id="error-studies">0</h3>
+                    <p>Ошибки</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Дополнительная статистика -->
+        <div class="info-grid">
+            <div class="info-card">
+                <h3><i class="fas fa-clock"></i> Среднее время обработки</h3>
+                <div class="metric">
+                    <span id="avg-processing-time">0.0</span>
+                    <small>секунд</small>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3><i class="fas fa-percentage"></i> Средняя вероятность ателектаза</h3>
+                <div class="metric">
+                    <span id="avg-atelectasis-prob">0.0</span>
+                    <small>%</small>
+                </div>
+            </div>
+
+            <div class="info-card">
+                <h3><i class="fas fa-heartbeat"></i> Статус системы</h3>
+                <div class="system-status" id="system-status">
+                    <span class="status-indicator"></span>
+                    <span class="status-text">Проверка...</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Быстрые действия -->
+        <div class="quick-actions">
+            <h3><i class="fas fa-bolt"></i> Быстрые действия</h3>
+            <div class="action-buttons">
+                <a href="/upload" class="btn btn-primary">
+                    <i class="fas fa-upload"></i>
+                    Загрузить DICOM
+                </a>
+                <a href="/results" class="btn btn-secondary">
+                    <i class="fas fa-list"></i>
+                    Посмотреть результаты
+                </a>
+                <button onclick="refreshStats()" class="btn btn-outline">
+                    <i class="fas fa-sync-alt"></i>
+                    Обновить статистику
+                </button>
+            </div>
+        </div>
+
+        <!-- Последние исследования -->
+        <div class="recent-studies">
+            <h3><i class="fas fa-clock"></i> Последние исследования</h3>
+            <div class="studies-table">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>ID</th>
+                            <th>Файл</th>
+                            <th>Статус</th>
+                            <th>Создано</th>
+                            <th>Результат</th>
+                        </tr>
+                    </thead>
+                    <tbody id="recent-studies-tbody">
+                        <tr>
+                            <td colspan="5" class="loading">Загрузка данных...</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/auth.js"></script>
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

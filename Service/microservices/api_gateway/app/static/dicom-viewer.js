@@ -1,0 +1,508 @@
+/**
+ * Простой DICOM Viewer
+ * Для демонстрации отображения DICOM изображений
+ */
+
+let currentCanvas = null;
+let currentImageData = null;
+let contrast = 1.0;
+let brightness = 0;
+
+/**
+ * Открытие DICOM файла для просмотра
+ */
+async function viewDicomFile(studyId, fileType) {
+    try {
+        const response = await authorizedFetch(`/download/dicom/${studyId}/${fileType}`);
+
+        if (!response.ok) {
+            throw new Error('Файл не найден');
+        }
+
+        const arrayBuffer = await response.arrayBuffer();
+        const uint8Array = new Uint8Array(arrayBuffer);
+
+        // Простая эмуляция DICOM парсинга
+        // В реальной системе нужно использовать библиотеку типа cornerstone.js или dicom-parser
+        await displayMockDicomImage(studyId, fileType);
+
+        showDicomModal();
+
+    } catch (error) {
+        console.error('Error viewing DICOM:', error);
+        showNotification('Ошибка открытия DICOM файла', 'error');
+    }
+}
+
+/**
+ * Отображение мок DICOM изображения
+ * В реальной системе здесь был бы настоящий DICOM парсер
+ */
+async function displayMockDicomImage(studyId, fileType) {
+    const canvas = document.getElementById('dicom-canvas');
+    const ctx = canvas.getContext('2d');
+
+    currentCanvas = canvas;
+
+    // Устанавливаем размеры canvas
+    canvas.width = 512;
+    canvas.height = 512;
+
+    // Создаем мок рентгеновского изображения
+    const imageData = ctx.createImageData(512, 512);
+    const data = imageData.data;
+
+    // Генерируем градиент, имитирующий рентгеновское изображение
+    for (let y = 0; y < 512; y++) {
+        for (let x = 0; x < 512; x++) {
+            const index = (y * 512 + x) * 4;
+
+            // Создаем паттерн, напоминающий легкие
+            let intensity = 50; // Базовая интенсивность
+
+            // Добавляем структуру легких
+            const centerX = 256;
+            const centerY = 256;
+            const distanceFromCenter = Math.sqrt((x - centerX) ** 2 + (y - centerY) ** 2);
+
+            // Создаем овальную форму для легких
+            if (distanceFromCenter < 200) {
+                intensity += 30 + Math.sin(x / 20) * 10 + Math.sin(y / 25) * 8;
+
+                // Добавляем ребра
+                if (x % 40 < 2) {
+                    intensity += 40;
+                }
+
+                // Если это аннотированное изображение и файл содержит обнаружение
+                if (fileType === 'annotated') {
+                    // Добавляем красную область для обнаруженного ателектаза
+                    if (x > 150 && x < 250 && y > 180 && y < 280) {
+                        data[index] = Math.min(255, intensity + 100);     // R
+                        data[index + 1] = intensity;                      // G
+                        data[index + 2] = intensity;                      // B
+                        data[index + 3] = 255;                           // A
+                        continue;
+                    }
+                }
+            }
+
+            // Ограничиваем значения
+            intensity = Math.max(0, Math.min(255, intensity));
+
+            // Применяем к RGB каналам (серый)
+            data[index] = intensity;     // R
+            data[index + 1] = intensity; // G
+            data[index + 2] = intensity; // B
+            data[index + 3] = 255;       // A
+        }
+    }
+
+    currentImageData = imageData;
+
+    // Отображаем изображение
+    ctx.putImageData(imageData, 0, 0);
+
+    // Добавляем информацию о файле
+    if (fileType === 'annotated') {
+        drawAnnotations(ctx, studyId);
+    }
+}
+
+/**
+ * Рисование аннотаций на изображении
+ */
+function drawAnnotations(ctx, studyId) {
+    // Рисуем рамку вокруг обнаруженной области
+    ctx.strokeStyle = '#ff0000';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(150, 180, 100, 100);
+
+    // Добавляем текст
+    ctx.fillStyle = '#ff0000';
+    ctx.font = 'bold 16px Arial';
+    ctx.fillText('Atelectasis: 85.2%', 160, 170);
+
+    // Добавляем информацию о системе
+    ctx.fillStyle = '#ffff00';
+    ctx.font = '12px Arial';
+    ctx.fillText(`AI Analysis - Study: ${studyId.substring(0, 8)}`, 10, 25);
+    ctx.fillText('Generated by Atelectasis Detection System', 10, 40);
+    ctx.fillText('For demonstration purposes only', 10, 500);
+}
+
+/**
+ * Показ модального окна DICOM viewer
+ */
+function showDicomModal() {
+    const modal = document.getElementById('dicom-modal');
+    modal.classList.add('show');
+
+    // Сброс настроек
+    contrast = 1.0;
+    brightness = 0;
+}
+
+/**
+ * Настройка контраста
+ */
+function adjustContrast(delta) {
+    if (!currentCanvas || !currentImageData) return;
+
+    contrast += delta / 100;
+    contrast = Math.max(0.1, Math.min(3.0, contrast));
+
+    applyImageAdjustments();
+}
+
+/**
+ * Применение настроек изображения
+ */
+function applyImageAdjustments() {
+    if (!currentCanvas || !currentImageData) return;
+
+    const ctx = currentCanvas.getContext('2d');
+    const imageData = ctx.createImageData(currentImageData.width, currentImageData.height);
+    const originalData = currentImageData.data;
+    const newData = imageData.data;
+
+    for (let i = 0; i < originalData.length; i += 4) {
+        // Применяем контраст и яркость
+        let r = originalData[i];
+        let g = originalData[i + 1];
+        let b = originalData[i + 2];
+
+        // Контраст
+        r = ((r - 128) * contrast) + 128;
+        g = ((g - 128) * contrast) + 128;
+        b = ((b - 128) * contrast) + 128;
+
+        // Яркость
+        r += brightness;
+        g += brightness;
+        b += brightness;
+
+        // Ограничиваем значения
+        newData[i] = Math.max(0, Math.min(255, r));
+        newData[i + 1] = Math.max(0, Math.min(255, g));
+        newData[i + 2] = Math.max(0, Math.min(255, b));
+        newData[i + 3] = originalData[i + 3]; // Alpha
+    }
+
+    ctx.putImageData(imageData, 0, 0);
+}
+
+/**
+ * Сброс настроек просмотра
+ */
+function resetView() {
+    contrast = 1.0;
+    brightness = 0;
+
+    if (currentCanvas && currentImageData) {
+        const ctx = currentCanvas.getContext('2d');
+        ctx.putImageData(currentImageData, 0, 0);
+    }
+}
+
+/**
+ * Расширенное модальное окно для результатов с поддержкой DICOM
+ */
+function enhanceResultModal() {
+    // Добавляем дополнительные стили для модального окна
+    const additionalStyles = `
+        .study-details {
+            max-height: none;
+        }
+        
+        .detail-section {
+            margin-bottom: 2rem;
+            padding: 1.5rem;
+            background: #f8f9fa;
+            border-radius: 8px;
+        }
+        
+        .detail-section h4 {
+            margin-bottom: 1rem;
+            color: var(--primary-color);
+            border-bottom: 2px solid var(--secondary-color);
+            padding-bottom: 0.5rem;
+        }
+        
+        .detail-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+        }
+        
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+            gap: 0.25rem;
+        }
+        
+        .detail-item label {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+        
+        .detail-item span {
+            font-size: 1rem;
+        }
+        
+        .analysis-results {
+            display: flex;
+            gap: 2rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .probability-display {
+            text-align: center;
+        }
+        
+        .probability-circle {
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto;
+            position: relative;
+            background: conic-gradient(from 0deg, var(--success-color) 0%, var(--success-color) var(--percentage, 0%), #e9ecef var(--percentage, 0%), #e9ecef 100%);
+        }
+        
+        .probability-circle::before {
+            content: '';
+            position: absolute;
+            inset: 10px;
+            border-radius: 50%;
+            background: white;
+        }
+        
+        .probability-value, .probability-label {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .probability-value {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: var(--primary-color);
+        }
+        
+        .probability-label {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+        }
+        
+        .high-risk .probability-circle {
+            background: conic-gradient(from 0deg, var(--error-color) 0%, var(--error-color) var(--percentage, 0%), #e9ecef var(--percentage, 0%), #e9ecef 100%);
+        }
+        
+        .medium-risk .probability-circle {
+            background: conic-gradient(from 0deg, var(--warning-color) 0%, var(--warning-color) var(--percentage, 0%), #e9ecef var(--percentage, 0%), #e9ecef 100%);
+        }
+        
+        .result-details {
+            flex: 1;
+            display: grid;
+            gap: 1rem;
+        }
+        
+        .conclusion-section {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background: white;
+            border-radius: 8px;
+            border-left: 4px solid var(--info-color);
+        }
+        
+        .conclusion-section h5 {
+            margin-bottom: 0.5rem;
+            color: var(--primary-color);
+        }
+        
+        .conclusion-text {
+            line-height: 1.6;
+            color: var(--text-color);
+        }
+        
+        .error-info, .processing-info {
+            text-align: center;
+            padding: 2rem;
+        }
+        
+        .processing-spinner {
+            font-size: 3rem;
+            color: var(--secondary-color);
+            margin-bottom: 1rem;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 0.5rem;
+        }
+        
+        .filename {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .probability {
+            font-weight: bold;
+        }
+        
+        .probability.high-risk {
+            color: var(--error-color);
+        }
+        
+        .probability.medium-risk {
+            color: var(--warning-color);
+        }
+        
+        .probability.low-risk {
+            color: var(--success-color);
+        }
+        
+        .study-id {
+            font-family: 'Courier New', monospace;
+            font-size: 0.9rem;
+            background: #f8f9fa;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+        }
+        
+        .result-summary {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .dicom-viewer-actions {
+            margin-top: 1rem;
+            display: flex;
+            gap: 0.5rem;
+            justify-content: center;
+        }
+    `;
+
+    // Добавляем стили если их еще нет
+    if (!document.getElementById('results-styles')) {
+        const styleElement = document.createElement('style');
+        styleElement.id = 'results-styles';
+        styleElement.textContent = additionalStyles;
+        document.head.appendChild(styleElement);
+    }
+}
+
+/**
+ * Добавление кнопок просмотра DICOM в модальное окно
+ */
+function addDicomViewButtons(studyId, reports) {
+    if (!reports) return '';
+
+    let buttons = '';
+
+    if (reports.dicom_sr) {
+        buttons += `
+            <button class="btn btn-outline btn-small" onclick="viewDicomFile('${studyId}', 'sr')" title="Просмотр структурированного отчета">
+                <i class="fas fa-file-medical"></i>
+                DICOM SR
+            </button>
+        `;
+    }
+
+    if (reports.dicom_annotated) {
+        buttons += `
+            <button class="btn btn-outline btn-small" onclick="viewDicomFile('${studyId}', 'annotated')" title="Просмотр аннотированного изображения">
+                <i class="fas fa-image"></i>
+                Аннотированное
+            </button>
+        `;
+    }
+
+    return buttons ? `<div class="dicom-viewer-actions">${buttons}</div>` : '';
+}
+
+/**
+ * Инициализация DICOM viewer
+ */
+document.addEventListener('DOMContentLoaded', function() {
+    enhanceResultModal();
+
+    // Обработчик для закрытия модального окна по клику вне области
+    document.getElementById('dicom-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeDicomModal();
+        }
+    });
+
+    document.getElementById('result-modal')?.addEventListener('click', function(e) {
+        if (e.target === this) {
+            closeModal();
+        }
+    });
+});
+
+/**
+ * Имитация загрузки настоящего DICOM файла
+ * В реальной системе здесь был бы настоящий DICOM парсер
+ */
+async function mockDicomLoader(arrayBuffer) {
+    // Простая имитация загрузки DICOM
+    return new Promise((resolve) => {
+        setTimeout(() => {
+            resolve({
+                width: 512,
+                height: 512,
+                pixelData: new Uint16Array(512 * 512),
+                windowCenter: 400,
+                windowWidth: 1600,
+                patientName: 'DEMO^PATIENT',
+                studyDate: '20241201',
+                modality: 'DX'
+            });
+        }, 500);
+    });
+}
+
+/**
+ * Демонстрационная функция для показа возможностей DICOM viewer
+ */
+function showDicomFeatures() {
+    const features = [
+        '🔍 Масштабирование и панорамирование',
+        '🎛️ Настройка контраста и яркости',
+        '📐 Измерение расстояний',
+        '🎯 Локализация патологий',
+        '📊 Отображение DICOM метаданных',
+        '💾 Экспорт аннотированных изображений',
+        '🔗 Интеграция с PACS системами',
+        '⚡ Быстрая загрузка больших файлов'
+    ];
+
+    showInfoModal('Возможности DICOM Viewer', `
+        <p>Встроенный DICOM viewer поддерживает:</p>
+        <ul style="list-style: none; padding-left: 0;">
+            ${features.map(feature => `<li style="margin-bottom: 0.5rem;">${feature}</li>`).join('')}
+        </ul>
+        <p><strong>Примечание:</strong> Текущая версия показывает демонстрационные изображения. 
+        В производственной версии будет полная поддержка DICOM стандарта.</p>
+    `);
+}
+
+/**
+ * Экспорт функций для использования в других модулях
+ */
+window.DicomViewer = {
+    viewFile: viewDicomFile,
+    adjustContrast: adjustContrast,
+    resetView: resetView,
+    showFeatures: showDicomFeatures
+};

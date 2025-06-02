@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Загрузка DICOM - Atelectasis Detection</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">
+            <i class="fas fa-lungs"></i>
+            <span>Atelectasis Detection</span>
+        </div>
+        <div class="nav-links">
+            <a href="/"><i class="fas fa-chart-line"></i> Дашборд</a>
+            <a href="/upload" class="active"><i class="fas fa-upload"></i> Загрузка</a>
+            <a href="/results"><i class="fas fa-list"></i> Результаты</a>
+            <a href="#" onclick="logout()"><i class="fas fa-sign-out-alt"></i> Выход</a>
+        </div>
+    </nav>
+
+    <div class="container">
+        <header class="page-header">
+            <h1><i class="fas fa-upload"></i> Загрузка DICOM файла</h1>
+            <p>Загрузите рентгенограмму легких для анализа на наличие ателектаза</p>
+        </header>
+
+        <!-- Форма загрузки -->
+        <div class="upload-section">
+            <div class="upload-container">
+                <div class="upload-area" id="upload-area">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <h3>Перетащите DICOM файл сюда</h3>
+                    <p>или нажмите для выбора файла</p>
+                    <input type="file" id="file-input" accept=".dcm,.dicom" hidden>
+                    <div class="file-requirements">
+                        <p><i class="fas fa-info-circle"></i> Требования к файлу:</p>
+                        <ul>
+                            <li>Формат: DICOM (.dcm)</li>
+                            <li>Модальность: DX, CR (рентген)</li>
+                            <li>Размер: до 100 МБ</li>
+                            <li>Разрешение: минимум 512x512</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <!-- Информация о выбранном файле -->
+                <div class="file-info" id="file-info" style="display: none;">
+                    <div class="file-details">
+                        <div class="file-icon">
+                            <i class="fas fa-file-medical"></i>
+                        </div>
+                        <div class="file-meta">
+                            <h4 id="file-name">Имя файла</h4>
+                            <p id="file-size">Размер файла</p>
+                        </div>
+                    </div>
+                    <button type="button" class="btn btn-outline" onclick="clearFile()">
+                        <i class="fas fa-times"></i> Удалить
+                    </button>
+                </div>
+
+                <!-- Кнопка загрузки -->
+                <div class="upload-actions" id="upload-actions" style="display: none;">
+                    <button type="button" class="btn btn-primary btn-large" onclick="uploadFile()" id="upload-btn">
+                        <i class="fas fa-upload"></i>
+                        Загрузить и анализировать
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Прогресс загрузки -->
+        <div class="upload-progress" id="upload-progress" style="display: none;">
+            <div class="progress-header">
+                <h3><i class="fas fa-cog fa-spin"></i> Обработка файла</h3>
+                <p id="progress-text">Загрузка файла...</p>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-fill" id="progress-fill"></div>
+            </div>
+            <div class="progress-steps">
+                <div class="step active" id="step-upload">
+                    <i class="fas fa-upload"></i>
+                    <span>Загрузка</span>
+                </div>
+                <div class="step" id="step-validate">
+                    <i class="fas fa-check-circle"></i>
+                    <span>Валидация</span>
+                </div>
+                <div class="step" id="step-analyze">
+                    <i class="fas fa-brain"></i>
+                    <span>Анализ ИИ</span>
+                </div>
+                <div class="step" id="step-complete">
+                    <i class="fas fa-flag-checkered"></i>
+                    <span>Готово</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Результат загрузки -->
+        <div class="upload-result" id="upload-result" style="display: none;">
+            <div class="result-success" id="result-success" style="display: none;">
+                <div class="result-icon">
+                    <i class="fas fa-check-circle"></i>
+                </div>
+                <h3>Файл успешно загружен!</h3>
+                <p>Ваш файл отправлен на анализ. ID исследования: <span id="study-id"></span></p>
+                <div class="result-actions">
+                    <button class="btn btn-primary" onclick="checkResult()">
+                        <i class="fas fa-eye"></i>
+                        Проверить результат
+                    </button>
+                    <button class="btn btn-secondary" onclick="uploadAnother()">
+                        <i class="fas fa-plus"></i>
+                        Загрузить еще файл
+                    </button>
+                </div>
+            </div>
+
+            <div class="result-error" id="result-error" style="display: none;">
+                <div class="result-icon error">
+                    <i class="fas fa-exclamation-triangle"></i>
+                </div>
+                <h3>Ошибка загрузки</h3>
+                <p id="error-message">Произошла ошибка при обработке файла</p>
+                <div class="result-actions">
+                    <button class="btn btn-outline" onclick="uploadAnother()">
+                        <i class="fas fa-redo"></i>
+                        Попробовать снова
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Тестовая секция для создания DICOM из PNG -->
+        <div class="test-section">
+            <h3><i class="fas fa-flask"></i> Тестовая зона</h3>
+            <p>Для тестирования: создайте DICOM файл из PNG изображения</p>
+            <div class="test-upload">
+                <input type="file" id="png-input" accept=".png" style="display: none;">
+                <button class="btn btn-outline" onclick="document.getElementById('png-input').click()">
+                    <i class="fas fa-image"></i>
+                    Выбрать PNG файл
+                </button>
+                <button class="btn btn-secondary" onclick="convertPngToDicom()" id="convert-btn" disabled>
+                    <i class="fas fa-magic"></i>
+                    Создать DICOM
+                </button>
+            </div>
+            <div id="conversion-result"></div>
+        </div>
+    </div>
+
+    <script src="/static/auth.js"></script>
+    <script src="/static/upload.js"></script>
+</body>
+</html>

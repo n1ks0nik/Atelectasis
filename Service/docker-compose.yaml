@@ -12,6 +12,7 @@ services:
     volumes:
       - ./data/shared-data:/app/uploads
       - ./microservices/shared:/app/shared
+      - ./data/storage-data/reports:/app/reports
     depends_on:
       kafka:
         condition: service_healthy

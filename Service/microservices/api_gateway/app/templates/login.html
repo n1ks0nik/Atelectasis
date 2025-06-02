@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Вход в систему - Atelectasis Detection</title>
+    <link rel="stylesheet" href="/static/style.css">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+</head>
+<body class="login-page">
+    <div class="login-container">
+        <div class="login-card">
+            <div class="login-header">
+                <div class="logo">
+                    <i class="fas fa-lungs"></i>
+                </div>
+                <h1>Atelectasis Detection System</h1>
+                <p>Система анализа рентгенограмм легких с помощью ИИ</p>
+            </div>
+
+            <form class="login-form" id="login-form">
+                <div class="form-group">
+                    <label for="token">
+                        <i class="fas fa-key"></i>
+                        Токен доступа
+                    </label>
+                    <input
+                        type="password"
+                        id="token"
+                        name="token"
+                        required
+                        placeholder="Введите ваш токен доступа"
+                        autocomplete="current-password"
+                    >
+                </div>
+
+                <button type="submit" class="btn btn-primary btn-large">
+                    <i class="fas fa-sign-in-alt"></i>
+                    Войти в систему
+                </button>
+            </form>
+
+            <div class="login-help">
+                <h3>Демо токены для тестирования:</h3>
+                <div class="demo-tokens">
+                    <div class="token-item">
+                        <span class="token-value">demo_token_123</span>
+                        <span class="token-role">Пользователь</span>
+                        <button onclick="fillToken('demo_token_123')" class="btn-small">Использовать</button>
+                    </div>
+                    <div class="token-item">
+                        <span class="token-value">admin_token_456</span>
+                        <span class="token-role">Администратор</span>
+                        <button onclick="fillToken('admin_token_456')" class="btn-small">Использовать</button>
+                    </div>
+                    <div class="token-item">
+                        <span class="token-value">test_token_789</span>
+                        <span class="token-role">Тест</span>
+                        <button onclick="fillToken('test_token_789')" class="btn-small">Использовать</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="system-info">
+                <h3><i class="fas fa-info-circle"></i> О системе</h3>
+                <ul>
+                    <li><strong>Назначение:</strong> Автоматическое обнаружение ателектаза на рентгенограммах</li>
+                    <li><strong>Входные данные:</strong> DICOM файлы рентгенографии грудной клетки</li>
+                    <li><strong>Результат:</strong> Вероятность наличия ателектаза и его локализация</li>
+                    <li><strong>Архитектура:</strong> Микросервисная на базе Kafka и PostgreSQL</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="login-background">
+        <div class="bg-shape shape-1"></div>
+        <div class="bg-shape shape-2"></div>
+        <div class="bg-shape shape-3"></div>
+    </div>
+
+    <script>
+        // Проверяем, авторизован ли пользователь
+        if (localStorage.getItem('auth_token')) {
+            window.location.href = '/';
+        }
+
+        // Обработчик формы входа
+        document.getElementById('login-form').addEventListener('submit', async (e) => {
+            e.preventDefault();
+
+            const token = document.getElementById('token').value;
+            const submitBtn = e.target.querySelector('button[type="submit"]');
+
+            // Показываем процесс загрузки
+            submitBtn.disabled = true;
+            submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Проверка токена...';
+
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ token })
+                });
+
+                const data = await response.json();
+
+                if (response.ok) {
+                    // Сохраняем токен и информацию о пользователе
+                    localStorage.setItem('auth_token', token);
+                    localStorage.setItem('user_data', JSON.stringify(data.user));
+
+                    // Успешная авторизация
+                    submitBtn.innerHTML = '<i class="fas fa-check"></i> Успешно!';
+                    submitBtn.style.backgroundColor = '#27ae60';
+
+                    // Переходим на главную страницу
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 1000);
+                } else {
+                    throw new Error(data.detail || 'Неверный токен');
+                }
+            } catch (error) {
+                // Показываем ошибку
+                submitBtn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Неверный токен';
+                submitBtn.style.backgroundColor = '#e74c3c';
+
+                setTimeout(() => {
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '<i class="fas fa-sign-in-alt"></i> Войти в систему';
+                    submitBtn.style.backgroundColor = '';
+                }, 2000);
+
+                // Встряхиваем форму
+                document.querySelector('.login-card').style.animation = 'shake 0.5s';
+                setTimeout(() => {
+                    document.querySelector('.login-card').style.animation = '';
+                }, 500);
+            }
+        });
+
+        // Функция для заполнения демо токена
+        function fillToken(token) {
+            document.getElementById('token').value = token;
+            document.getElementById('token').focus();
+        }
+
+        // Анимация встряхивания
+        const style = document.createElement('style');
+        style.textContent = `
+            @keyframes shake {
+                0%, 100% { transform: translateX(0); }
+                25% { transform: translateX(-10px); }
+                75% { transform: translateX(10px); }
+            }
+        `;
+        document.head.appendChild(style);
+    </script>
+</body>
+</html>
