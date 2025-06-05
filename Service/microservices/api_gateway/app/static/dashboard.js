@@ -62,7 +62,6 @@ function updateStatisticsDisplay() {
     const avgProb = statsData.avg_atelectasis_probability || 0;
 
     updateMetric('avg-processing-time', avgTime.toFixed(1));
-    updateMetric('avg-atelectasis-prob', (avgProb * 100).toFixed(1));
 
     // Анимация для счетчиков
     animateCounters();

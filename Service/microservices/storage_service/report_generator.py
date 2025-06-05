@@ -537,6 +537,7 @@ class DicomSRGenerator:
                            font_scale, (255, 255, 255), thickness)
             
             # Добавляем общую информацию
+            # TODO: исправить, чтобы на изображении было написано не только Ателектаз/Норма, но и если есть, то вероятность иных патологий
             info_text = [
                 f"AI Analysis - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
                 f"Status: {'Atelectasis Detected' if probability >= 0.7 else 'Normal'}",
@@ -627,16 +628,16 @@ class DicomSRGenerator:
             results = []
             
             # 1. Создаем аннотированное изображение если есть bbox
-            if report_data.get('bbox') and report_data.get('atelectasis_probability', 0) >= 0.7:
-                annotated_path = os.path.join(series_dir, f"{study_id}_annotated.dcm")
-                if self.create_annotated_image_dicom(
-                    original_ds, 
-                    report_data['bbox'],
-                    report_data['atelectasis_probability'],
-                    annotated_path
-                ):
-                    logger.info(f"✅ Annotated image created: {annotated_path}")
-                    results.append(annotated_path)
+            # if report_data.get('bbox') and report_data.get('atelectasis_probability', 0) >= 0.7:
+            annotated_path = os.path.join(series_dir, f"{study_id}_annotated.dcm")
+            if self.create_annotated_image_dicom(
+                original_ds,
+                report_data.get('bbox'),
+                report_data.get('atelectasis_probability', 0),
+                annotated_path
+            ):
+                logger.info(f"✅ Annotated image created: {annotated_path}")
+                results.append(annotated_path)
             
             # 2. Создаем SR отчет
             sr_path = os.path.join(series_dir, f"{study_id}_sr.dcm")
