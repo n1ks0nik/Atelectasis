@@ -7,7 +7,6 @@ from pydicom.dataset import FileDataset
 import pydicom.uid
 import numpy as np
 import cv2
-from PIL import Image, ImageDraw, ImageFont
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -89,16 +88,16 @@ class DicomSRGenerator:
         ds.AccessionNumber = getattr(original_ds, 'AccessionNumber', "")
 
         # SR Document Series Module
-        ds.Modality = "SR"  # ОБЯЗАТЕЛЬНОЕ: Structured Report
+        ds.Modality = "SR"
         ds.SeriesInstanceUID = generate_uid()
         ds.SeriesNumber = 999
         ds.SeriesDate = datetime.now().strftime('%Y%m%d')
         ds.SeriesTime = datetime.now().strftime('%H%M%S')
-        ds.SeriesDescription = "AI Atelectasis Analysis Report"
+        ds.SeriesDescription = "Анализ Ателектаза ИИ"
 
         # General Equipment Module
         ds.Manufacturer = self.manufacturer
-        ds.ManufacturerModelName = "AI Atelectasis Detector"
+        ds.ManufacturerModelName = "Анализ Ателектаза ИИ"
         ds.SoftwareVersions = self.software_version
         ds.DeviceSerialNumber = "AI-DETECT-001"
 
@@ -110,7 +109,7 @@ class DicomSRGenerator:
         ds.VerificationFlag = "UNVERIFIED"
 
         # Document Title
-        ds.ConceptNameCodeSequence = [self._create_code("18748-4", "LN", "Diagnostic imaging report")]
+        ds.ConceptNameCodeSequence = [self._create_code("18748-4", "LN", "Диагностический отчет")]
 
         # SOP Common Module
         ds.SOPClassUID = file_meta.MediaStorageSOPClassUID
@@ -214,7 +213,7 @@ class DicomSRGenerator:
         coord_item = Dataset()
         coord_item.RelationshipType = "CONTAINS"
         coord_item.ValueType = "SCOORD"
-        coord_item.ConceptNameCodeSequence = [self._create_code("111030", "DCM", "Image Region")]
+        coord_item.ConceptNameCodeSequence = [self._create_code("111030", "DCM", "Область изображения")]
 
         # Графический тип - прямоугольник (замкнутый полигон)
         coord_item.GraphicType = "POLYLINE"
@@ -256,28 +255,52 @@ class DicomSRGenerator:
         root_container = Dataset()
         root_container.RelationshipType = "CONTAINS"
         root_container.ValueType = "CONTAINER"
-        root_container.ConceptNameCodeSequence = [self._create_code("18748-4", "LN", "Diagnostic imaging report")]
+        root_container.ConceptNameCodeSequence = [self._create_code("18748-4", "LN", "Диагностический отчет")]
         root_container.ContinuityOfContent = "SEPARATE"
         root_container.ContentSequence = []
 
-        # 1. ОБЯЗАТЕЛЬНОЕ ПОЛЕ: Modality (источник изображения)
+        # Modality
         original_modality = getattr(original_ds, 'Modality', 'DX')  # По умолчанию DX для рентгена
         modality_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("121139", "DCM", "Modality"),
+            self._create_code("121139", "DCM", "Модальность"),
             original_modality
         )
         root_container.ContentSequence.append(modality_item)
 
-        # 2. ОБЯЗАТЕЛЬНОЕ ПОЛЕ: ObserverType
+        # ObserverType
         observer_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("121005", "DCM", "Observer Type"),
+            self._create_code("121005", "DCM", "Тип наблюдателя"),
             self.observer_type
         )
         root_container.ContentSequence.append(observer_item)
 
-        # 3. ОБЯЗАТЕЛЬНОЕ ПОЛЕ: Findings (текстовое заключение)
+        # Статус анализа
+        status_translation = {
+            'normal': 'Норма',
+            'atelectasis_only': 'Ателектаз',
+            'other_pathologies': 'Другие патологии'
+        }
+        status_text = status_translation.get(report_data['status'], report_data['status'])
+
+        status_item = self._create_text_content(
+            "CONTAINS",
+            self._create_code("33999-4", "LN", "Статус"),
+            status_text
+        )
+        root_container.ContentSequence.append(status_item)
+
+        # Probability (вероятность ателектаза 0-1)
+        probability_item = self._create_num_content(
+            "CONTAINS",
+            self._create_code("113011", "DCM", "Вероятность ателектаза"),
+            report_data['atelectasis_probability'],
+            self._create_code("1", "UCUM", "(безразмерная величина)")  # Безразмерная величина
+        )
+        root_container.ContentSequence.append(probability_item)
+
+        # Findings (текстовое заключение)
         findings_text = report_data['conclusion']
 
         # Добавляем обязательное предупреждение
@@ -288,27 +311,55 @@ class DicomSRGenerator:
 
         findings_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("121071", "DCM", "Finding"),
+            self._create_code("121071", "DCM", "Заключение"),
             findings_text
         )
         root_container.ContentSequence.append(findings_item)
 
-        # 4. ОБЯЗАТЕЛЬНОЕ ПОЛЕ: Probability (вероятность ателектаза 0-1)
-        probability_item = self._create_num_content(
-            "CONTAINS",
-            self._create_code("113011", "DCM", "Atelectasis Probability"),
-            report_data['atelectasis_probability'],
-            self._create_code("1", "UCUM", "Unity")  # Безразмерная величина
-        )
-        root_container.ContentSequence.append(probability_item)
+        # Локализация в анатомических терминах (если есть)
+        if report_data.get('location'):
 
-        # 5. ОБЯЗАТЕЛЬНОЕ ПОЛЕ: BoundingBox (локализация в DICOM-координатах)
-        if report_data['bbox'] and len(report_data['bbox']) == 4:
+            location_translation = {
+                'upper lobe, right lung': 'Верхняя доля правого легкого',
+                'middle lobe, right lung': 'Средняя доля правого легкого',
+                'lower lobe, right lung': 'Нижняя доля правого легкого',
+                'upper lobe, left lung': 'Верхняя доля левого легкого',
+                'lower lobe, left lung': 'Нижняя доля левого легкого',
+                'middle zone, right lung': 'Средняя зона правого легкого',
+                'middle zone, left lung': 'Средняя зона левого легкого',
+                'lower zone, right lung': 'Нижняя зона правого легкого',
+                'lower zone, left lung': 'Нижняя зона левого легкого'
+            }
+
+            russian_location = location_translation.get(
+                report_data['location'].lower(),
+                report_data['location']
+            )
+
+            location_item = self._create_text_content(
+                "CONTAINS",
+                self._create_code("363698007", "SCT", "Локализация"),
+                russian_location
+            )
+            root_container.ContentSequence.append(location_item)
+
+        # Другие патологии (если есть)
+        if report_data.get('other_pathologies_prob', 0) >= 0.3:
+            pathologies_item = self._create_num_content(
+                "CONTAINS",
+                self._create_code("363698007", "SCT", "Вероятность других патологий"),
+                report_data['other_pathologies_prob'],
+                self._create_code("2", "UCUM", "(безразмерная величина)")
+            )
+            root_container.ContentSequence.append(pathologies_item)
+
+        # BoundingBox (локализация в DICOM-координатах)
+        if report_data.get('bbox') and len(report_data['bbox']) == 4:
             # Текстовое описание координат
             bbox_description = self._create_bbox_text_description(report_data['bbox'])
             bbox_text_item = self._create_text_content(
                 "CONTAINS",
-                self._create_code("111001", "DCM", "Bounding Box Coordinates"),
+                self._create_code("111001", "DCM", "Координаты области патологии"),
                 bbox_description
             )
             root_container.ContentSequence.append(bbox_text_item)
@@ -318,36 +369,33 @@ class DicomSRGenerator:
             bbox_spatial_item = self._create_spatial_coordinates(report_data['bbox'], reference_uid)
             root_container.ContentSequence.append(bbox_spatial_item)
 
-        # 6. Дополнительные поля (не обязательные, но полезные)
-        # Статус анализа
-        status_item = self._create_text_content(
+        # Предупреждение и отказ от ответственности
+        warning_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("33999-4", "LN", "Status"),
-            report_data.get('status', 'completed')
+            self._create_code("121130", "DCM", "Предупреждение"),
+            "Заключение сгенерировано ИИ. Требуется подтверждение врача."
         )
-        root_container.ContentSequence.append(status_item)
+        root_container.ContentSequence.append(warning_item)
 
-        # Локализация в анатомических терминах (если есть)
-        if report_data.get('location'):
-            location_item = self._create_text_content(
-                "CONTAINS",
-                self._create_code("363698007", "SCT", "Finding site"),
-                report_data['location']
-            )
-            root_container.ContentSequence.append(location_item)
+        disclaimer_item = self._create_text_content(
+            "CONTAINS",
+            self._create_code("121131", "DCM", "Отказ от ответственности"),
+            "Для поддержки принятия врачебных решений. Не заменяет консультацию специалиста. Только для исследовательских целей."
+        )
+        root_container.ContentSequence.append(disclaimer_item)
 
         # Техническая информация о системе ИИ
         tech_container = Dataset()
         tech_container.RelationshipType = "CONTAINS"
         tech_container.ValueType = "CONTAINER"
-        tech_container.ConceptNameCodeSequence = [self._create_code("113876", "DCM", "Device")]
+        tech_container.ConceptNameCodeSequence = [self._create_code("113876", "DCM", "Технические данные")]
         tech_container.ContinuityOfContent = "SEPARATE"
         tech_container.ContentSequence = []
 
         # Информация о системе
         system_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("113878", "DCM", "Device Serial Number"),
+            self._create_code("113878", "DCM", "Система"),
             f"{self.manufacturer} {self.software_version}"
         )
         tech_container.ContentSequence.append(system_item)
@@ -356,7 +404,7 @@ class DicomSRGenerator:
         analysis_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         time_item = self._create_text_content(
             "CONTAINS",
-            self._create_code("111526", "DCM", "DateTime Started"),
+            self._create_code("111526", "DCM", "Дата исследования"),
             analysis_time
         )
         tech_container.ContentSequence.append(time_item)
@@ -455,8 +503,7 @@ class DicomSRGenerator:
                 # Дополнительные поля
                 "status": source_data.get('status', 'completed'),
                 "location_description": source_data.get('location', ''),
-                "other_pathologies": source_data.get('other_pathologies', []),
-                "confidence_levels": source_data.get('confidence_levels', []),
+                "other_pathologies_prob": source_data.get('other_pathologies_prob', []),
 
                 # Метаданные
                 "metadata": {
@@ -483,105 +530,113 @@ class DicomSRGenerator:
         except Exception as e:
             print(f"❌ Ошибка при создании JSON отчета: {str(e)}")
             return False
-    
 
-    def create_annotated_image_dicom(self, original_ds, bbox, probability, output_path):
+
+    def create_annotated_image_dicom(self, original_ds, bbox, atel_probability, other_pathologies_prob, output_path):
         """
         Создает DICOM с аннотированным изображением (Secondary Capture)
         """
         try:
             # Извлекаем пиксельные данные
             pixel_array = original_ds.pixel_array.astype(np.float32)
-            
+
             # Применяем RescaleSlope и RescaleIntercept если есть
             if hasattr(original_ds, 'RescaleSlope') and hasattr(original_ds, 'RescaleIntercept'):
                 pixel_array = pixel_array * original_ds.RescaleSlope + original_ds.RescaleIntercept
-            
+
             # Нормализация к диапазону 0-255 для визуализации
-            pixel_array = ((pixel_array - pixel_array.min()) / 
+            pixel_array = ((pixel_array - pixel_array.min()) /
                           (pixel_array.max() - pixel_array.min() + 1e-8) * 255).astype(np.uint8)
-            
+
             # Конвертируем в RGB для рисования цветных аннотаций
             if len(pixel_array.shape) == 2:
                 img_rgb = cv2.cvtColor(pixel_array, cv2.COLOR_GRAY2RGB)
             else:
                 img_rgb = pixel_array
-            
+
             # Рисуем bbox если есть
             if bbox and len(bbox) == 4:
                 x_min, y_min, x_max, y_max = bbox
                 # Красный прямоугольник
                 cv2.rectangle(img_rgb, (x_min, y_min), (x_max, y_max), (255, 0, 0), 3)
-                
+
                 # Добавляем текст с вероятностью
-                text = f"Atelectasis: {probability:.1%}"
-                font = cv2.FONT_HERSHEY_SIMPLEX
+                text = f"Ателектаз: {atel_probability:.1%}"
+                font = cv2.FONT_HERSHEY_COMPLEX
                 font_scale = 1.0
                 thickness = 2
-                
+
                 # Получаем размер текста
                 (text_width, text_height), baseline = cv2.getTextSize(text, font, font_scale, thickness)
-                
+
                 # Позиция текста (над bbox)
                 text_x = x_min
                 text_y = y_min - 10 if y_min - 10 > text_height else y_min + text_height + 10
-                
+
                 # Фон для текста
-                cv2.rectangle(img_rgb, 
-                            (text_x - 5, text_y - text_height - 5), 
-                            (text_x + text_width + 5, text_y + 5), 
+                cv2.rectangle(img_rgb,
+                            (text_x - 5, text_y - text_height - 5),
+                            (text_x + text_width + 5, text_y + 5),
                             (0, 0, 0), -1)
-                
+
                 # Сам текст (белый)
-                cv2.putText(img_rgb, text, (text_x, text_y), font, 
+                cv2.putText(img_rgb, text, (text_x, text_y), font,
                            font_scale, (255, 255, 255), thickness)
-            
+
             # Добавляем общую информацию
-            # TODO: исправить, чтобы на изображении было написано не только Ателектаз/Норма, но и если есть, то вероятность иных патологий
+            if atel_probability >= 0.7:
+                status = 'Обнаружен ателектаз'
+            elif other_pathologies_prob >= 0.3:
+                status = 'Обнаружены другие патологии'
+            else:
+                status = 'Норма'
+
             info_text = [
-                f"AI Analysis - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
-                f"Status: {'Atelectasis Detected' if probability >= 0.7 else 'Normal'}",
-                "For research purposes only"
+                f"Анализ ИИ - {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                f"Статус: {status}",
+                "Только для исследовательских целей."
             ]
-            
+
             y_offset = 30
             for i, line in enumerate(info_text):
-                cv2.putText(img_rgb, line, (10, y_offset + i * 25), 
-                           cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 0), 2)
-            
+                cv2.putText(img_rgb, line, (10, y_offset + i * 25),
+                           cv2.FONT_HERSHEY_COMPLEX, 0.7, (255, 255, 0), 2)
+
             # Создаем новый DICOM Dataset для Secondary Capture
             file_meta = Dataset()
             file_meta.MediaStorageSOPClassUID = '1.2.840.10008.5.1.4.1.1.7'  # Secondary Capture
             file_meta.MediaStorageSOPInstanceUID = generate_uid()
             file_meta.ImplementationClassUID = generate_uid()
             file_meta.TransferSyntaxUID = pydicom.uid.ExplicitVRLittleEndian
-            
+
             ds_annotated = FileDataset(None, {}, file_meta=file_meta, preamble=b"\0" * 128)
-            
+
+            ds_annotated.SpecificCharacterSet = 'ISO_IR 192'
+
             # Копируем метаданные пациента и исследования
             ds_annotated.PatientName = getattr(original_ds, 'PatientName', "Anonymous^Patient")
             ds_annotated.PatientID = getattr(original_ds, 'PatientID', "ANON_ID_001")
             ds_annotated.PatientBirthDate = getattr(original_ds, 'PatientBirthDate', '')
             ds_annotated.PatientSex = getattr(original_ds, 'PatientSex', '')
-            
+
             # Study информация (та же, что и у оригинала)
             ds_annotated.StudyInstanceUID = original_ds.StudyInstanceUID
             ds_annotated.StudyDate = original_ds.StudyDate
             ds_annotated.StudyTime = original_ds.StudyTime
             ds_annotated.AccessionNumber = getattr(original_ds, 'AccessionNumber', '')
-            ds_annotated.StudyDescription = "AI Atelectasis Analysis with Annotations"
-            
+            ds_annotated.StudyDescription = "Анализ Ателектаза ИИ"
+
             # Series информация (новая серия)
             ds_annotated.SeriesInstanceUID = generate_uid()
             ds_annotated.SeriesNumber = 2  # Серия 2 для аннотированных изображений
-            ds_annotated.SeriesDescription = "AI Annotated Images"
+            ds_annotated.SeriesDescription = "Изображение обработано ИИ"
             ds_annotated.Modality = "OT"  # Other
-            
+
             # SOP информация
             ds_annotated.SOPClassUID = file_meta.MediaStorageSOPClassUID
             ds_annotated.SOPInstanceUID = file_meta.MediaStorageSOPInstanceUID
             ds_annotated.InstanceNumber = 1
-            
+
             # Image информация
             ds_annotated.SamplesPerPixel = 3  # RGB
             ds_annotated.PhotometricInterpretation = "RGB"
@@ -591,19 +646,19 @@ class DicomSRGenerator:
             ds_annotated.HighBit = 7
             ds_annotated.PixelRepresentation = 0
             ds_annotated.PlanarConfiguration = 0
-            
+
             # Конвертируем изображение для DICOM
             ds_annotated.PixelData = img_rgb.tobytes()
-            
+
             # Добавляем информацию об аннотации
-            ds_annotated.ImageComments = f"AI detected atelectasis with {probability:.1%} probability"
-            ds_annotated.DerivationDescription = "AI annotated image showing detected pathology"
-            
+            ds_annotated.ImageComments = f"ИИ обнаружил ателектаз с вероятностью {atel_probability:.1%}"
+            ds_annotated.DerivationDescription = "Локализация патологии на основе ИИ"
+
             # Сохраняем
             ds_annotated.save_as(output_path)
-            
+
             return True
-            
+
         except Exception as e:
             logger.error(f"❌ Failed to create annotated image: {e}")
             import traceback
@@ -627,13 +682,13 @@ class DicomSRGenerator:
             
             results = []
             
-            # 1. Создаем аннотированное изображение если есть bbox
-            # if report_data.get('bbox') and report_data.get('atelectasis_probability', 0) >= 0.7:
+            # Создаем аннотированное изображение
             annotated_path = os.path.join(series_dir, f"{study_id}_annotated.dcm")
             if self.create_annotated_image_dicom(
                 original_ds,
                 report_data.get('bbox'),
                 report_data.get('atelectasis_probability', 0),
+                report_data.get('other_pathologies_prob', 0),
                 annotated_path
             ):
                 logger.info(f"✅ Annotated image created: {annotated_path}")

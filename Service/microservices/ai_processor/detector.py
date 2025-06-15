@@ -10,7 +10,10 @@ from dicom_handler import DicomHandler
 
 # Импортируем  модель
 from training_teacher_classifier import DeiTClassifierWSOL
+import logging
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class AtelectasisDetector:
     def __init__(self, checkpoint_path=None, device=None):
@@ -76,22 +79,12 @@ class AtelectasisDetector:
         # Определяем статус согласно требованиям
         if normal_prob >= 0.9:
             status = "normal"
-            other_pathologies = []
-            confidence_levels = []
         elif atelectasis_prob >= 0.7:
             status = "atelectasis_only"
-            other_pathologies = []
-            confidence_levels = []
         elif other_pathologies_prob >= 0.3:
             status = "other_pathologies"
-            # TODO: Переделать на класс "Иные патологии". Выводить предикт модели для этого класса, а не генерировать случайно
-            possible_pathologies = ["pleural_effusion", "pneumothorax", "consolidation"]
-            confidence_levels = [f"{np.random.uniform(0.3, 0.8) * 100:.0f}%" for _ in possible_pathologies[:2]]
-            other_pathologies = possible_pathologies[:2]
         else:
             status = "normal"
-            other_pathologies = []
-            confidence_levels = []
 
         atelectasis_str = f"{atelectasis_prob * 100:.1f}%"
 
@@ -101,15 +94,14 @@ class AtelectasisDetector:
         elif status == "atelectasis_only":
             conclusion = f"Обнаружены признаки ателектаза (вероятность: {atelectasis_str}). Требуется подтверждение врача."
         else:
-            conclusion = f"Обнаружены другие патологии. Вероятность ателектаза: {atelectasis_str}. Требуется подтверждение врача."
+            conclusion = f"Обнаружены другие патологии (вероятность {other_pathologies_prob}). Вероятность ателектаза: {atelectasis_str}. Требуется подтверждение врача."
 
         return {
             "status": status,
             "atelectasis_probability": atelectasis_prob,
             "atelectasis_probability_str": atelectasis_str,
             "conclusion": conclusion,
-            "other_pathologies": other_pathologies,
-            "confidence_levels": confidence_levels
+            "other_pathologies_prob": other_pathologies_prob
         }
 
     def process_dicom(self, dicom_path):
@@ -169,6 +161,23 @@ class AtelectasisDetector:
                     zone = "lower"
 
                 location = f"{zone} zone, {side} lung"
+
+                location_translation = {
+                    'upper lobe, right lung': 'Верхняя доля правого легкого',
+                    'middle lobe, right lung': 'Средняя доля правого легкого',
+                    'lower lobe, right lung': 'Нижняя доля правого легкого',
+                    'upper lobe, left lung': 'Верхняя доля левого легкого',
+                    'lower lobe, left lung': 'Нижняя доля левого легкого',
+                    'middle zone, right lung': 'Средняя зона правого легкого',
+                    'middle zone, left lung': 'Средняя зона левого легкого',
+                    'lower zone, right lung': 'Нижняя зона правого легкого',
+                    'lower zone, left lung': 'Нижняя зона левого легкого'
+                }
+
+                location = location_translation.get(
+                    location.lower(),
+                    location
+                )
 
         # Формируем финальный результат
         result = {

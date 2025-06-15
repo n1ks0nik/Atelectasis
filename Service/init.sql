@@ -37,8 +37,7 @@ CREATE TABLE analysis_results (
 CREATE TABLE other_pathologies (
     id SERIAL PRIMARY KEY,
     study_id UUID REFERENCES studies(study_id) ON DELETE CASCADE,
-    pathology_name VARCHAR(100),
-    confidence_level VARCHAR(10),
+    other_pathologies_probability DECIMAL(5,4),
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 

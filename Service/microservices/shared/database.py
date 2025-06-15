@@ -161,15 +161,12 @@ class DatabaseManager:
                                    )
 
                 # Сохраняем информацию о других патологиях
-                if results.get('other_pathologies'):
-                    for i, pathology in enumerate(results['other_pathologies']):
-                        confidence = results.get('confidence_levels', [])[i] if i < len(
-                            results.get('confidence_levels', [])) else None
-                        await conn.execute("""
-                            INSERT INTO other_pathologies 
-                            (study_id, pathology_name, confidence_level)
-                            VALUES ($1, $2, $3)
-                        """, study_id, pathology, confidence)
+                if results.get('other_pathologies_prob', 0) >= 0.3:
+                    await conn.execute("""
+                        INSERT INTO other_pathologies 
+                        (study_id, other_pathologies_probability)
+                        VALUES ($1, $2)
+                    """, study_id, results.get('other_pathologies_prob'))
 
     async def save_report_paths(self, study_id: str, report_paths: Dict[str, str]):
         """Сохранение путей к файлам отчетов"""

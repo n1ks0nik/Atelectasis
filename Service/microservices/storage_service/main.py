@@ -1,5 +1,3 @@
-#TODO: переделать хранение в словаре на нормальную бд
-
 import os
 import asyncio
 import logging
@@ -12,7 +10,7 @@ from dotenv import load_dotenv
 from aiokafka import AIOKafkaConsumer
 from aiokafka.errors import KafkaConnectionError, GroupCoordinatorNotAvailableError, KafkaError
 from aiokafka.admin import AIOKafkaAdminClient, NewTopic
-from  shared.database import db_manager
+from shared.database import db_manager
 
 # Импорты из модулей сервиса
 from report_generator import DicomSRGenerator
